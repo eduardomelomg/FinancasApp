@@ -534,6 +534,7 @@ export default function App() {
   const [tab, setTab] = useState("panorama");
   const [showMore, setShowMore] = useState(false);
   const [month, setMonth] = useState(new Date().getMonth());
+  const navRef = useRef(null);
 
   const [categories, setCategories] = useState([]);
   const [entries, setEntries] = useState([]);
@@ -587,6 +588,28 @@ export default function App() {
       localStorage.setItem("theme", "light");
     }
   }, [darkMode]);
+
+  // Mede a altura real do menu e reserva exatamente esse espaço no rodapé,
+  // via a variável CSS --nav-h. Assim o conteúdo respeita o menu em qualquer
+  // tela/aparelho (safe-area, tamanho de fonte, etc.).
+  useLayoutEffect(() => {
+    const el = navRef.current;
+    if (!el) return;
+
+    const setNavHeight = () =>
+      document.documentElement.style.setProperty("--nav-h", `${el.offsetHeight}px`);
+
+    setNavHeight();
+
+    const observer = new ResizeObserver(setNavHeight);
+    observer.observe(el);
+    window.addEventListener("resize", setNavHeight);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", setNavHeight);
+    };
+  }, [loaded]);
 
   const chartTextColor = darkMode ? "#E3E1DA" : "#1C2431";
   const chartGridColor = darkMode ? "#1F2937" : "#E3E1DA";
@@ -1004,7 +1027,7 @@ export default function App() {
         )}
       </main>
 
-      <nav className="nav">
+      <nav className="nav" ref={navRef}>
         <Tab
           active={tab === "panorama"}
           onClick={() => setTab("panorama")}
@@ -2716,8 +2739,9 @@ const CSS = `
   min-height: 100%;
   background: var(--cream);
   color: var(--ink);
-  /* Espaço para o menu fixo (+ safe-area) não cobrir o último card. */
-  padding-bottom: calc(112px + env(safe-area-inset-bottom));
+  /* Reserva exatamente a altura real do menu (medida em JS via --nav-h),
+     mais uma folga. Fallback caso o JS ainda não tenha medido. */
+  padding-bottom: calc(var(--nav-h, 96px) + 16px);
   overflow-x: hidden;
 }
 
