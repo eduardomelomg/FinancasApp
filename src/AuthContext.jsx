@@ -42,6 +42,32 @@ export function AuthProvider({ children }) {
 
     signOut: () => supabase.auth.signOut(),
 
+    // Envia a imagem para o bucket "avatars" (Storage) na pasta do usuário
+    // e devolve a URL pública. Evita guardar base64 gigante no user_metadata.
+    uploadAvatar: async (blob) => {
+      const { data: u } = await supabase.auth.getUser();
+      const userId = u?.user?.id;
+
+      if (!userId) throw new Error("Usuário não autenticado.");
+
+      const path = `${userId}/avatar.jpg`;
+
+      const { error } = await supabase.storage
+        .from("avatars")
+        .upload(path, blob, {
+          upsert: true,
+          contentType: "image/jpeg",
+          cacheControl: "3600",
+        });
+
+      if (error) throw error;
+
+      const { data } = supabase.storage.from("avatars").getPublicUrl(path);
+
+      // Cache-bust para a nova foto aparecer na hora.
+      return `${data.publicUrl}?t=${Date.now()}`;
+    },
+
     updateProfile: async (metadata) => {
       const { data, error } = await supabase.auth.updateUser({
         data: metadata,

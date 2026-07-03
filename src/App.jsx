@@ -250,6 +250,19 @@ function fileToResizedDataUrl(file, maxSize = 420, quality = 0.82) {
   });
 }
 
+function dataUrlToBlob(dataUrl) {
+  const [meta, base64] = dataUrl.split(",");
+  const mime = /:(.*?);/.exec(meta)?.[1] || "image/jpeg";
+  const bin = atob(base64);
+  const bytes = new Uint8Array(bin.length);
+
+  for (let i = 0; i < bin.length; i++) {
+    bytes[i] = bin.charCodeAt(i);
+  }
+
+  return new Blob([bytes], { type: mime });
+}
+
 function Toast({ toast, onClose }) {
   useEffect(() => {
     if (!toast) return;
@@ -515,7 +528,7 @@ function Tour({ tab, setTab, onFinish }) {
 }
 
 export default function App() {
-  const { signOut, user, updateProfile } = useAuth();
+  const { signOut, user, updateProfile, uploadAvatar } = useAuth();
 
   const [tab, setTab] = useState("panorama");
   const [month, setMonth] = useState(new Date().getMonth());
@@ -957,6 +970,7 @@ export default function App() {
             setDarkMode={setDarkMode}
             showToast={showToast}
             onReplayTour={() => setShowOnboarding(true)}
+            uploadAvatar={uploadAvatar}
           />
         )}
       </main>
@@ -2348,6 +2362,7 @@ function Configuracoes({
   setDarkMode,
   showToast,
   onReplayTour,
+  uploadAvatar,
 }) {
   const [name, setName] = useState(
     user?.user_metadata?.full_name || user?.user_metadata?.name || ""
@@ -2376,10 +2391,21 @@ function Configuracoes({
 
     try {
       const dataUrl = await fileToResizedDataUrl(file);
-      setPhotoUrl(dataUrl);
+      setPhotoUrl(dataUrl); // preview imediato
+
+      // Sobe pro bucket do Supabase e troca pela URL hospedada.
+      const blob = dataUrlToBlob(dataUrl);
+      const publicUrl = await uploadAvatar(blob);
+      setPhotoUrl(publicUrl);
+
+      showToast?.("Foto enviada. Toque em Salvar Perfil para confirmar.");
     } catch (e) {
       console.error(e);
-      alert(e.message || "Não consegui carregar essa imagem.");
+      showToast?.(
+        e.message || "Não consegui enviar essa imagem.",
+        "error",
+        "Erro"
+      );
     } finally {
       setUploadingPhoto(false);
       event.target.value = "";
