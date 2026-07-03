@@ -197,8 +197,8 @@ function Btn({
 function Tab({ active, onClick, icon: Icon, label }) {
   return (
     <button onClick={onClick} className={`tab ${active ? "tab-active" : ""}`}>
-      <Icon size={17} />
-      {label}
+      <Icon size={22} strokeWidth={active ? 2.4 : 2} />
+      <span>{label}</span>
     </button>
   );
 }
@@ -548,7 +548,8 @@ export default function App() {
   );
 
   const [darkMode, setDarkMode] = useState(
-    () => localStorage.getItem("theme") === "dark"
+    // Escuro por padrão; só fica claro se o usuário escolher explicitamente.
+    () => localStorage.getItem("theme") !== "light"
   );
 
   const [toast, setToast] = useState(null);
@@ -839,10 +840,19 @@ export default function App() {
   };
 
   if (!loaded) {
+    // Estilos inline (sem depender do <style> abaixo) para casar com a splash
+    // do boot — navy + logo, sem tela branca nem texto "carregando".
     return (
-      <div className="loading">
-        <Wallet size={30} />
-        <span>Carregando…</span>
+      <div
+        style={{
+          minHeight: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: "#151E2E",
+        }}
+      >
+        <Logo size={76} radius={22} />
       </div>
     );
   }
@@ -2668,40 +2678,77 @@ main {
   right: 0;
   background: var(--panel);
   border-top: 1px solid var(--border);
-  padding: 8px 6px;
+  padding: 8px 6px calc(8px + env(safe-area-inset-bottom));
   display: flex;
-  gap: 3px;
+  gap: 2px;
   max-width: 640px;
   margin: 0 auto;
   z-index: 20;
+  box-shadow: 0 -6px 20px rgba(0, 0, 0, 0.10);
 }
 
 .tab {
   flex: 1;
   border: none;
-  border-radius: 12px;
-  padding: 7px 1px;
-  font-size: 10px;
+  border-radius: 14px;
+  padding: 9px 1px;
+  font-size: 10.5px;
   font-weight: 600;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   cursor: pointer;
   min-width: 0;
+  color: var(--ink);
+  transition: color .15s ease, background .15s ease;
+}
+
+.tab span {
+  line-height: 1;
+  letter-spacing: -0.2px;
+}
+
+.tab svg {
+  width: 22px;
+  height: 22px;
 }
 
 .tab-active {
-  background: var(--navy);
-  color: #fff;
-  opacity: 1;
+  color: var(--teal);
+}
+
+.tab-active svg {
+  color: var(--teal);
 }
 
 .tab:not(.tab-active) {
   background: transparent;
   color: var(--ink);
-  opacity: .55;
+  opacity: .5;
 }
+
+.tab:not(.tab-active):active {
+  opacity: .8;
+}
+
+/* Ponto/realce do item ativo */
+.tab-active {
+  position: relative;
+}
+
+.tab-active::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  width: 34px;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--teal);
+}
+
+/* Fundo (overscroll/safe-area) acompanha o tema, casando com o cabeçalho */
+html, body { background: var(--navy); }
 
 .card {
   background: var(--panel);
@@ -3445,12 +3492,14 @@ input:checked + .slider:before {
   }
 
   .tab {
-    font-size: 9px;
+    font-size: 9.5px;
+    padding: 9px 0;
+    gap: 4px;
   }
 
   .tab svg {
-    width: 15px;
-    height: 15px;
+    width: 20px;
+    height: 20px;
   }
 }
   .installment-preview {

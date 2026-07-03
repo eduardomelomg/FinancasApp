@@ -13,7 +13,7 @@ export default defineConfig({
         short_name: "Grana",
         description: "Controle de receitas, despesas, investimentos e metas.",
         theme_color: "#22304A",
-        background_color: "#F6F5F1",
+        background_color: "#151E2E",
         display: "standalone",
         orientation: "portrait",
         start_url: "/",

@@ -1,5 +1,10 @@
 * { box-sizing: border-box; }
 html, body, #root { margin: 0; padding: 0; height: 100%; }
-body { font-family: 'Helvetica Neue', Arial, sans-serif; background: #F6F5F1; -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent; }
+/* Fundo escuro (navy) por padrão — cobre a área de overscroll/pull-to-refresh
+   e o safe-area, evitando o flash branco ao recarregar. */
+html, body { background: #151E2E; }
+body { font-family: 'Helvetica Neue', Arial, sans-serif; -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent; overscroll-behavior-y: none; }
 input, select, button, textarea { font-family: inherit; }
 #root { padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
+/* Quando o usuário escolhe tema claro, o topo acompanha o cabeçalho (navy claro). */
+html:not(.dark), html:not(.dark) body { background: #22304A; }
