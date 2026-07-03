@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useLayoutEffect } from "react";
+import React, { useState, useEffect, useCallback, useLayoutEffect, useRef } from "react";
 import {
   BarChart,
   Bar,
@@ -1305,6 +1305,9 @@ function Mensal({ data, api, month, setMonth }) {
     installmentsTotal: "1",
   });
 
+  const [adding, setAdding] = useState(false);
+  const addingRef = useRef(false);
+
   useEffect(() => {
     const validCategory = data.categories.some(
       (category) => category.id === f.categoryId && category.type === f.type
@@ -1349,6 +1352,12 @@ function Mensal({ data, api, month, setMonth }) {
   const activeCards = data.cards.filter((card) => card.active !== false);
 
   const add = async () => {
+    // Trava síncrona: evita gravação duplicada por toque duplo (dois taps
+    // disparam antes do React atualizar o estado; o ref é imediato).
+    if (addingRef.current) return;
+    addingRef.current = true;
+    setAdding(true);
+
     try {
       if (!f.value || !f.categoryId) {
         alert("Informe o valor e selecione uma categoria.");
@@ -1449,6 +1458,9 @@ function Mensal({ data, api, month, setMonth }) {
     } catch (error) {
       console.error("Erro ao adicionar lançamento:", error);
       alert(error?.message || "Erro ao adicionar lançamento.");
+    } finally {
+      addingRef.current = false;
+      setAdding(false);
     }
   };
 
@@ -1684,9 +1696,9 @@ function Mensal({ data, api, month, setMonth }) {
           );
         })()}
 
-        <Btn onClick={add} className="mt-3" data-tour="entry-add">
+        <Btn onClick={add} className="mt-3" data-tour="entry-add" disabled={adding}>
           <Plus size={16} />
-          Adicionar
+          {adding ? "Adicionando..." : "Adicionar"}
         </Btn>
       </Card>
 
