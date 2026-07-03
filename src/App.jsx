@@ -1727,10 +1727,10 @@ function Mensal({ data, api, month, setMonth }) {
 
           return (
             <Card key={e.id} className="p-3 row between">
-              <div className="row gap-2">
+              <div className="row gap-2" style={{ minWidth: 0, flex: 1 }}>
                 <span className="dot" style={{ background: c?.color || "#999" }} />
 
-                <div>
+                <div style={{ minWidth: 0 }}>
                   <div className="item-title">
                     {c?.name || "?"}
                     {e.desc ? ` · ${e.desc}` : ""}
@@ -1751,11 +1751,12 @@ function Mensal({ data, api, month, setMonth }) {
                 </div>
               </div>
 
-              <div className="row gap-3">
+              <div className="row gap-3" style={{ flexShrink: 0 }}>
                 <span
                   style={{
                     fontWeight: 700,
                     fontSize: 14,
+                    whiteSpace: "nowrap",
                     color: e.type === "receita" ? GOOD : BAD,
                   }}
                 >
@@ -2308,18 +2309,19 @@ function Investimentos({ data, api, darkMode, chartTextColor, chartGridColor }) 
           .sort((a, b) => b.date.localeCompare(a.date))
           .map((i) => (
             <Card key={i.id} className="p-3 row between">
-              <div>
+              <div style={{ minWidth: 0, flex: 1 }}>
                 <div className="item-title">{i.name}</div>
                 <div className="item-sub">
                   {i.date} · {i.type}
                 </div>
               </div>
 
-              <div className="row gap-3">
+              <div className="row gap-3" style={{ flexShrink: 0 }}>
                 <span
                   style={{
                     fontWeight: 700,
                     fontSize: 14,
+                    whiteSpace: "nowrap",
                     color: GOLD,
                   }}
                 >
@@ -2714,7 +2716,8 @@ const CSS = `
   min-height: 100%;
   background: var(--cream);
   color: var(--ink);
-  padding-bottom: 86px;
+  /* Espaço para o menu fixo (+ safe-area) não cobrir o último card. */
+  padding-bottom: calc(112px + env(safe-area-inset-bottom));
   overflow-x: hidden;
 }
 
@@ -3122,6 +3125,7 @@ h4 {
   font-weight: 600;
   font-size: 14px;
   color: var(--ink);
+  overflow-wrap: anywhere;
 }
 
 .item-sub {
@@ -3252,6 +3256,7 @@ input:checked + .slider:before {
 .delete-btn {
   width: 36px;
   height: 36px;
+  flex-shrink: 0;
   border-radius: 12px;
   border: 1px solid rgba(193, 84, 60, .25);
   background: rgba(193, 84, 60, .08);
