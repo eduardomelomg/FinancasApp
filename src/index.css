@@ -1,0 +1,5 @@
+* { box-sizing: border-box; }
+html, body, #root { margin: 0; padding: 0; height: 100%; }
+body { font-family: 'Helvetica Neue', Arial, sans-serif; background: #F6F5F1; -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent; }
+input, select, button, textarea { font-family: inherit; }
+#root { padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
