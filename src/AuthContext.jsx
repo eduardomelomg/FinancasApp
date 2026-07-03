@@ -68,6 +68,20 @@ export function AuthProvider({ children }) {
       return `${data.publicUrl}?t=${Date.now()}`;
     },
 
+    // Remove o arquivo de avatar do bucket (pasta do usuário).
+    deleteAvatar: async () => {
+      const { data: u } = await supabase.auth.getUser();
+      const userId = u?.user?.id;
+
+      if (!userId) throw new Error("Usuário não autenticado.");
+
+      const { error } = await supabase.storage
+        .from("avatars")
+        .remove([`${userId}/avatar.jpg`]);
+
+      if (error) throw error;
+    },
+
     updateProfile: async (metadata) => {
       const { data, error } = await supabase.auth.updateUser({
         data: metadata,

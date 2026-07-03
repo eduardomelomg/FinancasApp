@@ -528,7 +528,7 @@ function Tour({ tab, setTab, onFinish }) {
 }
 
 export default function App() {
-  const { signOut, user, updateProfile, uploadAvatar } = useAuth();
+  const { signOut, user, updateProfile, uploadAvatar, deleteAvatar } = useAuth();
 
   const [tab, setTab] = useState("panorama");
   const [month, setMonth] = useState(new Date().getMonth());
@@ -971,6 +971,7 @@ export default function App() {
             showToast={showToast}
             onReplayTour={() => setShowOnboarding(true)}
             uploadAvatar={uploadAvatar}
+            deleteAvatar={deleteAvatar}
           />
         )}
       </main>
@@ -2363,6 +2364,7 @@ function Configuracoes({
   showToast,
   onReplayTour,
   uploadAvatar,
+  deleteAvatar,
 }) {
   const [name, setName] = useState(
     user?.user_metadata?.full_name || user?.user_metadata?.name || ""
@@ -2409,6 +2411,30 @@ function Configuracoes({
     } finally {
       setUploadingPhoto(false);
       event.target.value = "";
+    }
+  };
+
+  const handleRemovePhoto = async () => {
+    if (!confirm("Remover sua foto de perfil?")) return;
+
+    const wasHosted = /\/avatars\//.test(photoUrl);
+
+    setUploadingPhoto(true);
+
+    try {
+      // Só apaga do bucket se a foto atual for um upload nosso
+      // (presets/dicebear são URLs externas, não têm arquivo no Storage).
+      if (wasHosted) await deleteAvatar();
+
+      setPhotoUrl("");
+      await updateProfile({ avatar_url: "" });
+
+      showToast?.("Foto removida.");
+    } catch (e) {
+      console.error(e);
+      showToast?.(e.message || "Não consegui remover a foto.", "error", "Erro");
+    } finally {
+      setUploadingPhoto(false);
     }
   };
 
@@ -2477,7 +2503,8 @@ function Configuracoes({
               {photoUrl && (
                 <button
                   className="photo-remove-btn"
-                  onClick={() => setPhotoUrl("")}
+                  onClick={handleRemovePhoto}
+                  disabled={uploadingPhoto}
                   type="button"
                 >
                   Remover foto
