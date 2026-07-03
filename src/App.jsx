@@ -2789,6 +2789,7 @@ main {
 .tab {
   flex: 1;
   border: none;
+  background: transparent;
   border-radius: 14px;
   padding: 9px 1px;
   font-size: 10.5px;
@@ -2800,6 +2801,8 @@ main {
   cursor: pointer;
   min-width: 0;
   color: var(--ink);
+  -webkit-appearance: none;
+  appearance: none;
   transition: color .15s ease, background .15s ease;
 }
 
@@ -2813,7 +2816,9 @@ main {
   height: 22px;
 }
 
+/* Aba ativa: realce teal sutil (sem o fundo branco padrão do botão) */
 .tab-active {
+  background: rgba(46, 139, 124, 0.14);
   color: var(--teal);
 }
 
@@ -2829,21 +2834,6 @@ main {
 
 .tab:not(.tab-active):active {
   opacity: .8;
-}
-
-/* Ponto/realce do item ativo */
-.tab-active {
-  position: relative;
-}
-
-.tab-active::before {
-  content: "";
-  position: absolute;
-  top: 2px;
-  width: 34px;
-  height: 3px;
-  border-radius: 999px;
-  background: var(--teal);
 }
 
 /* Fundo (overscroll/safe-area) acompanha o tema, casando com o cabeçalho */
