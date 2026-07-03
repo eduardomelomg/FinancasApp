@@ -34,6 +34,7 @@ const toDB = (store, item) => {
       installment_group_id: item.installmentGroupId || null,
       installment_number: Number(item.installmentNumber || 1),
       installments_total: Number(item.installmentsTotal || 1),
+      paid: item.paid === true,
       invoice_month:
         item.invoiceMonth !== undefined && item.invoiceMonth !== null
           ? Number(item.invoiceMonth)
@@ -76,6 +77,7 @@ const fromDB = (store, row) => {
       installmentGroupId: row.installment_group_id || "",
       installmentNumber: Number(row.installment_number || 1),
       installmentsTotal: Number(row.installments_total || 1),
+      paid: row.paid === true,
       invoiceMonth:
         row.invoice_month !== undefined && row.invoice_month !== null
           ? Number(row.invoice_month)

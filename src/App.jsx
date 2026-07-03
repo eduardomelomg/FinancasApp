@@ -745,6 +745,22 @@ export default function App() {
       await safeCall(remove, "cards", id);
       showToast("Cartão excluído.");
     },
+
+    // Marca (ou reabre) uma fatura: atualiza o campo paid dos lançamentos.
+    setInvoicePaid: async (entriesList, paid) => {
+      try {
+        for (const entry of entriesList) {
+          await put("entries", { ...entry, paid });
+        }
+
+        await reload();
+        showToast(paid ? "Fatura marcada como paga." : "Fatura reaberta.");
+      } catch (e) {
+        console.error("Erro ao atualizar fatura:", e);
+        showToast(e?.message || "Erro ao atualizar a fatura.", "error", "Erro");
+        throw e;
+      }
+    },
   };
 
   const handleMigration = async () => {
@@ -1729,6 +1745,8 @@ function Mensal({ data, api, month, setMonth }) {
                       ? ` · Parcela ${e.installmentNumber}/${e.installmentsTotal}`
                       : ""}
                     {hasInvoice ? ` · Vence ${e.invoiceDueDate}` : ""}
+                    {e.paid ? " · " : ""}
+                    {e.paid && <b className="good-text">paga ✓</b>}
                   </div>
                 </div>
               </div>
@@ -1917,9 +1935,11 @@ function Cartoes({ data, api, month }) {
     .filter((card) => card.active !== false)
     .reduce((acc, card) => acc + Number(card.limit || 0), 0);
 
-  // Total comprometido no limite do cartão.
-  // Como ainda não temos "fatura paga", considera todas as compras no crédito.
-  const totalLimitUsed = creditEntries.reduce((acc, entry) => acc + entry.value, 0);
+  // Total comprometido no limite: parcelas ainda NÃO pagas.
+  // Ao marcar a fatura como paga, essas parcelas liberam o limite.
+  const totalLimitUsed = creditEntries
+    .filter((entry) => !entry.paid)
+    .reduce((acc, entry) => acc + entry.value, 0);
 
   // Valor da fatura do mês selecionado.
   const totalInvoice = invoiceEntries.reduce((acc, entry) => acc + entry.value, 0);
@@ -1933,8 +1953,12 @@ function Cartoes({ data, api, month }) {
 
   const getLimitUsedByCard = (cardId) =>
     creditEntries
-      .filter((entry) => entry.cardId === cardId)
+      .filter((entry) => entry.cardId === cardId && !entry.paid)
       .reduce((acc, entry) => acc + entry.value, 0);
+
+  // Lançamentos da fatura do mês, por cartão (para marcar como paga).
+  const getInvoiceEntriesByCard = (cardId) =>
+    invoiceEntries.filter((entry) => entry.cardId === cardId);
 
   return (
     <div className="col gap-4">
@@ -2043,6 +2067,11 @@ function Cartoes({ data, api, month }) {
           const available = limit - used;
           const usedPct = limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
 
+          const monthInvoice = getInvoiceEntriesByCard(card.id);
+          const hasInvoice = monthInvoice.length > 0;
+          const invoicePaid =
+            hasInvoice && monthInvoice.every((entry) => entry.paid);
+
           return (
             <Card key={card.id} className="p-4">
               <div className="row between mb-2">
@@ -2110,6 +2139,31 @@ function Cartoes({ data, api, month }) {
                   {card.active !== false ? "Ativo" : "Inativo"}
                 </span>
               </div>
+
+              {hasInvoice && (
+                <div className="invoice-pay mt-3">
+                  <div className="row between">
+                    <span className="item-sub">
+                      Fatura de {MESES[month]}
+                      {invoicePaid ? " · " : ""}
+                      {invoicePaid && <b className="good-text">paga ✓</b>}
+                    </span>
+                    <strong>{fmt(invoiceValue)}</strong>
+                  </div>
+
+                  <Btn
+                    variant={invoicePaid ? "ghost" : "solid"}
+                    className="mt-2"
+                    onClick={() =>
+                      api.setInvoicePaid(monthInvoice, !invoicePaid)
+                    }
+                  >
+                    {invoicePaid
+                      ? "Reabrir fatura"
+                      : "Marcar fatura como paga"}
+                  </Btn>
+                </div>
+              )}
             </Card>
           );
         })}
@@ -3642,6 +3696,11 @@ input:checked + .slider:before {
 
 .installment-preview strong {
   color: var(--gold);
+}
+
+.invoice-pay {
+  border-top: 1px dashed var(--border);
+  padding-top: 12px;
 }
 
 /* Tour guiado / tutorial interativo de primeiro acesso */
