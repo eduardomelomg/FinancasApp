@@ -29,6 +29,7 @@ import {
   ImagePlus,
   Palette,
   CreditCard,
+  MoreHorizontal,
 } from "lucide-react";
 import { getAll, put, remove, exportAll, importAll, seedIfEmpty } from "./db.js";
 import { useAuth } from "./AuthContext.jsx";
@@ -531,6 +532,7 @@ export default function App() {
   const { signOut, user, updateProfile, uploadAvatar, deleteAvatar } = useAuth();
 
   const [tab, setTab] = useState("panorama");
+  const [showMore, setShowMore] = useState(false);
   const [month, setMonth] = useState(new Date().getMonth());
 
   const [categories, setCategories] = useState([]);
@@ -1002,13 +1004,6 @@ export default function App() {
         />
 
         <Tab
-          active={tab === "categorias"}
-          onClick={() => setTab("categorias")}
-          icon={Tags}
-          label="Categorias"
-        />
-
-        <Tab
           active={tab === "cartoes"}
           onClick={() => setTab("cartoes")}
           icon={CreditCard}
@@ -1023,19 +1018,54 @@ export default function App() {
         />
 
         <Tab
-          active={tab === "metas"}
-          onClick={() => setTab("metas")}
-          icon={Target}
-          label="Metas"
-        />
-
-        <Tab
-          active={tab === "config"}
-          onClick={() => setTab("config")}
-          icon={Settings}
-          label="Ajustes"
+          active={MORE_TABS.some((t) => t.id === tab)}
+          onClick={() => setShowMore(true)}
+          icon={MoreHorizontal}
+          label="Mais"
         />
       </nav>
+
+      {showMore && (
+        <MoreSheet
+          current={tab}
+          onSelect={(id) => {
+            setTab(id);
+            setShowMore(false);
+          }}
+          onClose={() => setShowMore(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+// Abas secundárias, acessadas pelo botão "Mais".
+const MORE_TABS = [
+  { id: "categorias", icon: Tags, label: "Categorias" },
+  { id: "metas", icon: Target, label: "Metas" },
+  { id: "config", icon: Settings, label: "Ajustes" },
+];
+
+function MoreSheet({ current, onSelect, onClose }) {
+  return (
+    <div className="sheet-overlay" onClick={onClose}>
+      <div className="sheet" onClick={(e) => e.stopPropagation()}>
+        <div className="sheet-handle" />
+        <div className="sheet-title">Mais opções</div>
+
+        {MORE_TABS.map(({ id, icon: Icon, label }) => (
+          <button
+            key={id}
+            className={`sheet-item ${current === id ? "sheet-item-active" : ""}`}
+            onClick={() => onSelect(id)}
+          >
+            <span className="sheet-item-icon">
+              <Icon size={20} />
+            </span>
+            {label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -2749,6 +2779,91 @@ main {
 
 /* Fundo (overscroll/safe-area) acompanha o tema, casando com o cabeçalho */
 html, body { background: var(--navy); }
+
+/* Bottom sheet do menu "Mais" */
+.sheet-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(17, 24, 39, 0.5);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: flex-end;
+  animation: onb-in 0.2s ease;
+}
+
+.sheet {
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto;
+  background: var(--panel);
+  border-top-left-radius: 22px;
+  border-top-right-radius: 22px;
+  border-top: 1px solid var(--border);
+  padding: 10px 14px calc(18px + env(safe-area-inset-bottom));
+  box-shadow: 0 -14px 40px rgba(0, 0, 0, 0.3);
+  animation: sheet-up 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.sheet-handle {
+  width: 42px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--border);
+  margin: 4px auto 12px;
+}
+
+.sheet-title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--ink);
+  opacity: 0.5;
+  padding: 0 6px 8px;
+}
+
+.sheet-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 600;
+  padding: 14px 10px;
+  border-radius: 14px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.sheet-item:active {
+  background: rgba(46, 139, 124, 0.10);
+}
+
+.sheet-item-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(46, 139, 124, 0.12);
+  color: var(--teal);
+  flex-shrink: 0;
+}
+
+.sheet-item-active {
+  background: rgba(46, 139, 124, 0.12);
+  color: var(--teal);
+}
+
+@keyframes sheet-up {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
 
 .card {
   background: var(--panel);
