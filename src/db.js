@@ -11,6 +11,7 @@ const TABLES = {
   investments: "investments",
   goals: "goals",
   cards: "cards",
+  categoryRules: "category_rules",
 };
 
 // Converte camelCase do app para snake_case do banco
@@ -22,7 +23,7 @@ const toDB = (store, item) => {
   };
 
   if (store === "entries") {
-    return {
+    const row = {
       id: item.id,
       date: item.date,
       category_id: item.categoryId,
@@ -44,6 +45,23 @@ const toDB = (store, item) => {
           ? Number(item.invoiceYear)
           : null,
       invoice_due_date: item.invoiceDueDate || null,
+    };
+
+    // Campos novos (Fase 2/3): só enviados quando preenchidos, para que
+    // lançamentos normais continuem salvando mesmo se a coluna ainda não
+    // existir no Supabase (migração pendente).
+    if (item.recurringGroupId) row.recurring_group_id = item.recurringGroupId;
+    if (item.importFitid) row.import_fitid = item.importFitid;
+
+    return row;
+  }
+
+  if (store === "categoryRules") {
+    return {
+      id: item.id,
+      pattern: (item.pattern || "").toLowerCase(),
+      category_id: item.categoryId,
+      created_at: item.createdAt || new Date().toISOString(),
     };
   }
 
@@ -87,6 +105,17 @@ const fromDB = (store, row) => {
           ? Number(row.invoice_year)
           : null,
       invoiceDueDate: row.invoice_due_date || "",
+      recurringGroupId: row.recurring_group_id || "",
+      importFitid: row.import_fitid || "",
+    };
+  }
+
+  if (store === "categoryRules") {
+    return {
+      id: row.id,
+      pattern: row.pattern || "",
+      categoryId: row.category_id,
+      createdAt: row.created_at,
     };
   }
 

@@ -30,8 +30,21 @@ import {
   Palette,
   CreditCard,
   MoreHorizontal,
+  Pencil,
+  CalendarClock,
+  FileUp,
 } from "lucide-react";
 import { getAll, put, remove, exportAll, importAll, seedIfEmpty } from "./db.js";
+import { useRegisterSW } from "virtual:pwa-register/react";
+import {
+  parseStatement,
+  suggestPattern,
+  matchRule,
+} from "./lib/import.js";
+
+// Versão do app, injetada em build time pelo Vite (define). Em dev cai no fallback.
+const APP_VERSION =
+  typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "dev";
 import { useAuth } from "./AuthContext.jsx";
 import { openDB } from "idb";
 
@@ -208,6 +221,36 @@ function DeleteButton({ onClick, title = "Excluir" }) {
   return (
     <button className="delete-btn" onClick={onClick} title={title}>
       <Trash2 size={17} />
+    </button>
+  );
+}
+
+// Fase 6.1: banner "Nova versão disponível". Checa atualização a cada 60s.
+function UpdatePrompt() {
+  const {
+    needRefresh: [needRefresh],
+    updateServiceWorker,
+  } = useRegisterSW({
+    onRegisteredSW(swUrl, registration) {
+      if (!registration) return;
+      setInterval(() => registration.update(), 60 * 1000);
+    },
+  });
+
+  if (!needRefresh) return null;
+
+  return (
+    <div className="update-prompt">
+      <span>Nova versão disponível</span>
+      <button onClick={() => updateServiceWorker(true)}>Atualizar</button>
+    </div>
+  );
+}
+
+function EditButton({ onClick, title = "Editar" }) {
+  return (
+    <button className="edit-btn" onClick={onClick} title={title}>
+      <Pencil size={16} />
     </button>
   );
 }
@@ -541,6 +584,7 @@ export default function App() {
   const [investments, setInvestments] = useState([]);
   const [goals, setGoals] = useState([]);
   const [cards, setCards] = useState([]);
+  const [categoryRules, setCategoryRules] = useState([]);
 
   const [loaded, setLoaded] = useState(false);
   const [hasLocalData, setHasLocalData] = useState(false);
@@ -621,12 +665,13 @@ export default function App() {
     user?.user_metadata?.avatar_url || user?.user_metadata?.picture || "";
 
   const reload = useCallback(async () => {
-    const [c, e, i, g, ca] = await Promise.all([
+    const [c, e, i, g, ca, rules] = await Promise.all([
       getAll("categories"),
       getAll("entries"),
       getAll("investments"),
       getAll("goals"),
       getAll("cards"),
+      getAll("categoryRules"),
     ]);
 
     setCategories(c);
@@ -634,6 +679,7 @@ export default function App() {
     setInvestments(i);
     setGoals(g);
     setCards(ca);
+    setCategoryRules(rules);
     setLoaded(true);
   }, []);
 
@@ -739,6 +785,30 @@ export default function App() {
       showToast("Lançamento excluído.");
     },
 
+    // Exclui todos os lançamentos de um grupo (série recorrente ou parcelamento).
+    delEntryGroup: async (field, groupId) => {
+      try {
+        const targets = entries.filter((e) => e[field] === groupId);
+        for (const e of targets) await remove("entries", e.id);
+        await reload();
+        showToast(`Série removida (${targets.length} lançamentos).`);
+      } catch (e) {
+        console.error("Erro ao remover série:", e);
+        showToast(e?.message || "Erro ao remover a série.", "error", "Erro");
+        throw e;
+      }
+    },
+
+    saveRule: async (x) => {
+      await safeCall(put, "categoryRules", x);
+      showToast("Regra salva.");
+    },
+
+    delRule: async (id) => {
+      await safeCall(remove, "categoryRules", id);
+      showToast("Regra excluída.");
+    },
+
     addInvest: async (x) => {
       await safeCall(put, "investments", x);
       showToast("Investimento adicionado.");
@@ -837,6 +907,20 @@ export default function App() {
     localStorage.setItem("hide-financas-migration-banner", "true");
   };
 
+  // Fase 6-G: snapshot silencioso antes de qualquer restauração em lote,
+  // guardando os últimos 3 no localStorage (rede de segurança, sem UI extra).
+  const saveAutoBackup = async () => {
+    try {
+      const snapshot = await exportAll();
+      const key = "financas-auto-backups";
+      const list = JSON.parse(localStorage.getItem(key) || "[]");
+      list.unshift(snapshot);
+      localStorage.setItem(key, JSON.stringify(list.slice(0, 3)));
+    } catch (err) {
+      console.error("Falha ao criar backup automático:", err);
+    }
+  };
+
   const doExport = async () => {
     const d = await exportAll();
     const b = new Blob([JSON.stringify(d, null, 2)], {
@@ -861,7 +945,9 @@ export default function App() {
 
     r.onload = async () => {
       try {
-        await importAll(JSON.parse(r.result));
+        const payload = JSON.parse(r.result);
+        await saveAutoBackup();
+        await importAll(payload);
         reload();
         alert("Backup restaurado!");
       } catch {
@@ -878,6 +964,7 @@ export default function App() {
     investments,
     goals,
     cards,
+    categoryRules,
   };
 
   if (!loaded) {
@@ -902,6 +989,7 @@ export default function App() {
     <div className="app">
       <style>{CSS}</style>
       <Toast toast={toast} onClose={closeToast} />
+      <UpdatePrompt />
 
       {showOnboarding && (
         <Tour tab={tab} setTab={setTab} onFinish={finishOnboarding} />
@@ -997,6 +1085,12 @@ export default function App() {
 
         {tab === "categorias" && <Categorias data={data} api={api} />}
 
+        {tab === "futuro" && <Futuro data={data} />}
+
+        {tab === "importar" && <Importar data={data} api={api} showToast={showToast} beforeBulk={saveAutoBackup} />}
+
+        {tab === "regras" && <Regras data={data} api={api} />}
+
         {tab === "cartoes" && (
           <Cartoes data={data} api={api} month={month} />
         )}
@@ -1025,6 +1119,8 @@ export default function App() {
             deleteAvatar={deleteAvatar}
           />
         )}
+
+        <p className="app-version">Grana v{APP_VERSION}</p>
       </main>
 
       <nav className="nav" ref={navRef}>
@@ -1080,6 +1176,9 @@ export default function App() {
 
 // Abas secundárias, acessadas pelo botão "Mais".
 const MORE_TABS = [
+  { id: "futuro", icon: CalendarClock, label: "A pagar" },
+  { id: "importar", icon: FileUp, label: "Importar extrato" },
+  { id: "regras", icon: Tags, label: "Regras de categoria" },
   { id: "categorias", icon: Tags, label: "Categorias" },
   { id: "metas", icon: Target, label: "Metas" },
   { id: "config", icon: Settings, label: "Ajustes" },
@@ -1303,14 +1402,18 @@ function calculateInvoiceInfo(purchaseDateString, card, installmentIndex = 0) {
 
   invoiceBase = addMonthsToDate(invoiceBase, installmentIndex);
 
-  const invoiceYear = invoiceBase.getFullYear();
-  const invoiceMonth = invoiceBase.getMonth();
+  const closeYear = invoiceBase.getFullYear();
+  const closeMonth = invoiceBase.getMonth();
 
-  let dueYear = invoiceYear;
-  let dueMonth = invoiceMonth;
+  // A competência mostrada ao usuário ("fatura de agosto") é o mês de
+  // VENCIMENTO, não o mês em que a fatura fecha — é assim que a pessoa pensa
+  // sobre a compra ("isso eu pago em agosto"), mesmo quando fechamento e
+  // vencimento caem em meses diferentes (ex.: fecha dia 28, vence dia 5).
+  let dueYear = closeYear;
+  let dueMonth = closeMonth;
 
   if (dueDay <= closingDay) {
-    const dueBase = addMonthsToDate(new Date(invoiceYear, invoiceMonth, 1), 1);
+    const dueBase = addMonthsToDate(new Date(closeYear, closeMonth, 1), 1);
     dueYear = dueBase.getFullYear();
     dueMonth = dueBase.getMonth();
   }
@@ -1319,10 +1422,634 @@ function calculateInvoiceInfo(purchaseDateString, card, installmentIndex = 0) {
   const dueDate = new Date(dueYear, dueMonth, safeDueDay, 12, 0, 0);
 
   return {
-    invoiceMonth,
-    invoiceYear,
+    invoiceMonth: dueMonth,
+    invoiceYear: dueYear,
     invoiceDueDate: formatDateISO(dueDate),
   };
+}
+
+// Competência efetiva de um lançamento: para cartão usa a fatura
+// (invoiceMonth/invoiceYear); para os demais, o mês da própria data.
+function entryCompetence(e) {
+  if (
+    e.paymentMethod === "credit_card" &&
+    e.invoiceMonth !== null &&
+    e.invoiceMonth !== undefined &&
+    e.invoiceYear !== null &&
+    e.invoiceYear !== undefined
+  ) {
+    return { year: Number(e.invoiceYear), month: Number(e.invoiceMonth) };
+  }
+  const d = new Date(`${e.date}T12:00:00`);
+  return { year: d.getFullYear(), month: d.getMonth() };
+}
+
+// Fase 2.2: soma tudo já comprometido em meses FUTUROS (parcelas +
+// recorrências + faturas), agrupado por competência.
+function Futuro({ data }) {
+  const now = new Date();
+  const curKey = now.getFullYear() * 12 + now.getMonth();
+
+  const buckets = {};
+  for (const e of data.entries) {
+    if (e.type !== "despesa") continue;
+    const { year, month } = entryCompetence(e);
+    const key = year * 12 + month;
+    if (key <= curKey) continue; // só o que ainda está por vir
+    (buckets[key] = buckets[key] || { year, month, total: 0, items: [] });
+    buckets[key].total += e.value;
+    buckets[key].items.push(e);
+  }
+
+  const cm = Object.fromEntries(data.categories.map((c) => [c.id, c]));
+  const months = Object.values(buckets).sort(
+    (a, b) => a.year * 12 + a.month - (b.year * 12 + b.month)
+  );
+  const grandTotal = months.reduce((a, m) => a + m.total, 0);
+
+  return (
+    <div className="col gap-4">
+      <p className="viewing-month">
+        Compromissos futuros · <strong>{fmt(grandTotal)}</strong> no total
+      </p>
+
+      {months.length === 0 && (
+        <Card className="p-5">
+          <p style={{ fontSize: 14, opacity: 0.6, margin: 0 }}>
+            Nada comprometido nos próximos meses. Parcelas e despesas fixas
+            aparecem aqui automaticamente.
+          </p>
+        </Card>
+      )}
+
+      {months.map((m) => (
+        <Card key={`${m.year}-${m.month}`} className="p-4">
+          <div className="row between mb-2">
+            <h4>
+              {MESES[m.month]} de {m.year}
+            </h4>
+            <strong className="bad-text">{fmt(m.total)}</strong>
+          </div>
+
+          <div className="col gap-2">
+            {m.items
+              .sort((a, b) => b.value - a.value)
+              .map((e) => {
+                const c = cm[e.categoryId];
+                const isInstallment = Number(e.installmentsTotal || 1) > 1;
+                return (
+                  <div key={e.id} className="row between future-item">
+                    <span className="item-sub" style={{ minWidth: 0 }}>
+                      {c?.name || "?"}
+                      {e.desc ? ` · ${e.desc}` : ""}
+                      {isInstallment
+                        ? ` · ${e.installmentNumber}/${e.installmentsTotal}`
+                        : ""}
+                      {e.recurringGroupId ? " · 🔁" : ""}
+                    </span>
+                    <span className="item-sub" style={{ whiteSpace: "nowrap" }}>
+                      {fmt(e.value)}
+                    </span>
+                  </div>
+                );
+              })}
+          </div>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+// Lançamentos de uma fatura (cartão + competência year/month).
+function invoiceEntriesFor(entries, cardId, year, month) {
+  return entries.filter((e) => {
+    if (e.cardId !== cardId) return false;
+    const { year: y, month: m } = entryCompetence(e);
+    return y === year && m === month;
+  });
+}
+
+// Fase 5.2: modal (bottom sheet) com o detalhe da fatura e navegação entre meses.
+function FaturaModal({ card, data, startYear, startMonth, onClose }) {
+  const [ym, setYm] = useState({ year: startYear, month: startMonth });
+  const cm = Object.fromEntries(data.categories.map((c) => [c.id, c]));
+
+  const items = invoiceEntriesFor(data.entries, card.id, ym.year, ym.month).sort(
+    (a, b) => b.date.localeCompare(a.date)
+  );
+  const total = items.reduce((a, e) => a + e.value, 0);
+
+  const shift = (delta) => {
+    const idx = ym.year * 12 + ym.month + delta;
+    setYm({ year: Math.floor(idx / 12), month: ((idx % 12) + 12) % 12 });
+  };
+
+  return (
+    <div className="sheet-overlay" onClick={onClose}>
+      <div className="sheet fatura-sheet" onClick={(e) => e.stopPropagation()}>
+        <div className="sheet-handle" />
+
+        <div className="row between mb-2">
+          <div className="row gap-2">
+            <div
+              className="card-color-badge"
+              style={{ background: card.color || TEAL }}
+            >
+              <CreditCard size={18} />
+            </div>
+            <div>
+              <h4>{card.name}</h4>
+              <p className="item-sub">
+                Fecha dia {card.closingDay} · Vence dia {card.dueDay}
+              </p>
+            </div>
+          </div>
+          <button className="icon-btn" onClick={onClose} title="Fechar">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="fatura-nav">
+          <button onClick={() => shift(-1)} className="icon-btn">‹</button>
+          <div className="fatura-nav-label">
+            Fatura de {MESES[ym.month]}/{ym.year}
+            <strong>{fmt(total)}</strong>
+          </div>
+          <button onClick={() => shift(1)} className="icon-btn">›</button>
+        </div>
+
+        <div className="col gap-2 fatura-list">
+          {items.length === 0 && (
+            <p className="empty">Sem lançamentos nesta fatura.</p>
+          )}
+          {items.map((e) => {
+            const c = cm[e.categoryId];
+            const isInstallment = Number(e.installmentsTotal || 1) > 1;
+            return (
+              <div key={e.id} className="row between future-item">
+                <span className="item-sub" style={{ minWidth: 0 }}>
+                  {c?.name || "?"}
+                  {e.desc ? ` · ${e.desc}` : ""}
+                  {isInstallment
+                    ? ` · ${e.installmentNumber}/${e.installmentsTotal}`
+                    : ""}
+                </span>
+                <span className="item-sub" style={{ whiteSpace: "nowrap" }}>
+                  {fmt(e.value)}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Fase 5.1: carrossel horizontal de cartões (olhar rápido) + abre a fatura.
+function CartoesCarrossel({ data, year, month }) {
+  const [openCard, setOpenCard] = useState(null);
+  const cards = data.cards.filter((c) => c.active !== false);
+  if (cards.length === 0) return null;
+
+  return (
+    <div>
+      <div className="carousel">
+        {cards.map((card) => {
+          const items = invoiceEntriesFor(data.entries, card.id, year, month);
+          const invoiceTotal = items.reduce((a, e) => a + e.value, 0);
+
+          const limit = Number(card.limit || card.limitValue || 0);
+          // "Usado" = faturas ainda não pagas do cartão.
+          const used = data.entries
+            .filter((e) => e.cardId === card.id && !e.paid)
+            .reduce((a, e) => a + e.value, 0);
+          const available = limit - used;
+          const usedPct = limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
+
+          return (
+            <button
+              key={card.id}
+              className="carousel-card"
+              style={{ background: card.color || TEAL }}
+              onClick={() => setOpenCard(card)}
+            >
+              <div className="row between">
+                <span className="cc-name">{card.name}</span>
+                <CreditCard size={18} />
+              </div>
+
+              <div className="cc-invoice">
+                <span>Fatura de {MABR[month]}</span>
+                <strong>{fmt(invoiceTotal)}</strong>
+              </div>
+
+              <div className="cc-dates">
+                Fecha {String(card.closingDay).padStart(2, "0")} · Vence{" "}
+                {String(card.dueDay).padStart(2, "0")}
+              </div>
+
+              {limit > 0 && (
+                <div className="cc-limit">
+                  <div className="cc-bar">
+                    <div className="cc-bar-fill" style={{ width: `${usedPct}%` }} />
+                  </div>
+                  <div className="cc-limit-row">
+                    <span>Usado {fmt(used)}</span>
+                    <span>Disp. {fmt(available)}</span>
+                  </div>
+                </div>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {openCard && (
+        <FaturaModal
+          card={openCard}
+          data={data}
+          startYear={year}
+          startMonth={month}
+          onClose={() => setOpenCard(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// Fase 3: importação de extrato OFX/CSV com revisão, dedup e aprendizado.
+function Importar({ data, api, showToast, beforeBulk }) {
+  const [rows, setRows] = useState([]);
+  const [dupCount, setDupCount] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const fileRef = useRef(null);
+
+  const cardMap = Object.fromEntries(data.cards.map((c) => [c.id, c]));
+
+  const existingFitids = new Set(
+    data.entries.map((e) => e.importFitid).filter(Boolean)
+  );
+  const existingSigs = new Set(
+    data.entries.map((e) => `${e.date}|${e.value}|${(e.desc || "").toLowerCase()}`)
+  );
+
+  const handleFile = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const txs = parseStatement(text, file.name);
+
+      if (txs.length === 0) {
+        showToast("Não encontrei transações nesse arquivo.", "error", "Arquivo");
+        setRows([]);
+        return;
+      }
+
+      let dups = 0;
+      const prepared = txs.map((t) => {
+        const sig = `${t.date}|${Math.abs(t.amount)}|${t.desc.toLowerCase()}`;
+        const isDup =
+          (t.fitid && existingFitids.has(t.fitid)) ||
+          (!t.fitid && existingSigs.has(sig));
+        if (isDup) dups++;
+
+        const rule = matchRule(t.desc, data.categoryRules);
+        const cats = data.categories.filter((c) => c.type === t.type);
+        const categoryId = rule?.categoryId || cats[0]?.id || "";
+
+        return {
+          ...t,
+          skip: isDup,
+          categoryId,
+          cardId: "",
+          createRule: false,
+          rulePattern: suggestPattern(t.desc),
+        };
+      });
+
+      setDupCount(dups);
+      setRows(prepared);
+    } catch (e) {
+      console.error(e);
+      showToast("Não consegui ler o arquivo.", "error", "Erro");
+    } finally {
+      event.target.value = "";
+    }
+  };
+
+  const update = (i, patch) =>
+    setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+
+  // Fase 4: aplica um cartão a TODAS as despesas de uma vez (fatura por cartão).
+  const assignAllToCard = (cardId) =>
+    setRows((rs) =>
+      rs.map((r) => (r.type === "despesa" ? { ...r, cardId } : r))
+    );
+
+  const [bulkCard, setBulkCard] = useState("");
+
+  const importar = async () => {
+    const toImport = rows.filter((r) => !r.skip && r.categoryId);
+    if (toImport.length === 0) {
+      showToast("Nada para importar.", "error", "Importação");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      await beforeBulk?.(); // backup automático (Fase 6-G)
+
+      const entries = [];
+      const rules = [];
+
+      for (const r of toImport) {
+        const card = r.cardId ? cardMap[r.cardId] : null;
+        const invoiceInfo = card
+          ? calculateInvoiceInfo(r.date, card, 0)
+          : { invoiceMonth: null, invoiceYear: null, invoiceDueDate: "" };
+
+        entries.push({
+          id: uid(),
+          date: r.date,
+          categoryId: r.categoryId,
+          desc: r.desc,
+          value: Math.abs(r.amount),
+          type: r.type,
+          paymentMethod: card ? "credit_card" : "pix",
+          cardId: card ? r.cardId : "",
+          installmentGroupId: "",
+          installmentNumber: 1,
+          installmentsTotal: 1,
+          importFitid: r.fitid || "",
+          ...invoiceInfo,
+        });
+
+        if (r.createRule && r.rulePattern.trim()) {
+          rules.push({
+            id: uid(),
+            pattern: r.rulePattern.trim().toLowerCase(),
+            categoryId: r.categoryId,
+            createdAt: new Date().toISOString(),
+          });
+        }
+      }
+
+      for (const rule of rules) await put("categoryRules", rule);
+      await api.addEntries(entries);
+
+      showToast(
+        `${entries.length} lançamentos importados` +
+          (dupCount ? ` · ${dupCount} ignorados (já existiam)` : "") +
+          (rules.length ? ` · ${rules.length} regras criadas` : "")
+      );
+      setRows([]);
+      setDupCount(0);
+    } catch (e) {
+      console.error(e);
+      showToast(e?.message || "Erro ao importar.", "error", "Erro");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const importCount = rows.filter((r) => !r.skip && r.categoryId).length;
+
+  return (
+    <div className="col gap-4">
+      <Card className="p-4">
+        <h3>Importar extrato</h3>
+        <p className="item-sub" style={{ marginTop: 4 }}>
+          Aceita arquivos <b>.ofx</b> (extrato do banco ou fatura do cartão) e
+          <b> .csv</b>. A data e o valor vêm prontos do extrato — você só confere
+          a categoria. Para uma fatura de cartão, use "Aplicar a todas" e as
+          despesas caem na competência certa automaticamente.
+        </p>
+
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".ofx,.csv,.txt"
+          onChange={handleFile}
+          style={{ display: "none" }}
+        />
+
+        <Btn className="mt-3" onClick={() => fileRef.current?.click()}>
+          <FileUp size={16} />
+          Escolher arquivo
+        </Btn>
+      </Card>
+
+      {rows.length > 0 && (
+        <>
+          <Card className="p-3 col gap-3">
+            <div className="row between">
+              <span className="item-sub">
+                {rows.length} transações · {importCount} a importar
+                {dupCount ? ` · ${dupCount} já existiam` : ""}
+              </span>
+              <Btn onClick={importar} disabled={busy || importCount === 0}>
+                {busy ? "Importando..." : `Importar ${importCount}`}
+              </Btn>
+            </div>
+
+            {data.cards.filter((c) => c.active !== false).length > 0 && (
+              <div className="row gap-2" style={{ flexWrap: "wrap" }}>
+                <span className="item-sub" style={{ whiteSpace: "nowrap" }}>
+                  Fatura de cartão? Aplicar a todas:
+                </span>
+                <SelectInput
+                  value={bulkCard}
+                  onChange={(e) => {
+                    setBulkCard(e.target.value);
+                    assignAllToCard(e.target.value);
+                  }}
+                  style={{ flex: 1, minWidth: 140 }}
+                >
+                  <option value="">Dinheiro/Pix/Débito</option>
+                  {data.cards
+                    .filter((c) => c.active !== false)
+                    .map((c) => (
+                      <option key={c.id} value={c.id}>
+                        Cartão {c.name}
+                      </option>
+                    ))}
+                </SelectInput>
+              </div>
+            )}
+          </Card>
+
+          <div className="col gap-2">
+            {rows.map((r, i) => {
+              const cats = data.categories.filter((c) => c.type === r.type);
+              return (
+                <Card
+                  key={i}
+                  className="p-3 col gap-2"
+                  style={{ opacity: r.skip ? 0.5 : 1 }}
+                >
+                  <div className="row between">
+                    <div style={{ minWidth: 0 }}>
+                      <div className="item-title">{r.desc}</div>
+                      <div className="item-sub">
+                        {r.date} ·{" "}
+                        <b className={r.type === "receita" ? "good-text" : "bad-text"}>
+                          {fmt(Math.abs(r.amount))}
+                        </b>{" "}
+                        · {r.type}
+                        {r.skip ? " · já importado" : ""}
+                      </div>
+                    </div>
+                    <label className="row gap-1 item-sub" style={{ whiteSpace: "nowrap" }}>
+                      <input
+                        type="checkbox"
+                        checked={!r.skip}
+                        onChange={(e) => update(i, { skip: !e.target.checked })}
+                      />
+                      incluir
+                    </label>
+                  </div>
+
+                  {!r.skip && (
+                    <div className="grid2 gap-2">
+                      <SelectInput
+                        value={r.categoryId}
+                        onChange={(e) => update(i, { categoryId: e.target.value })}
+                      >
+                        {cats.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </SelectInput>
+
+                      {r.type === "despesa" && (
+                        <SelectInput
+                          value={r.cardId}
+                          onChange={(e) => update(i, { cardId: e.target.value })}
+                        >
+                          <option value="">Dinheiro/Pix/Débito</option>
+                          {data.cards
+                            .filter((c) => c.active !== false)
+                            .map((c) => (
+                              <option key={c.id} value={c.id}>
+                                Cartão {c.name}
+                              </option>
+                            ))}
+                        </SelectInput>
+                      )}
+                    </div>
+                  )}
+
+                  {!r.skip && (
+                    <label className="row gap-2 item-sub">
+                      <input
+                        type="checkbox"
+                        checked={r.createRule}
+                        onChange={(e) => update(i, { createRule: e.target.checked })}
+                      />
+                      Lembrar: contém
+                      <input
+                        className="rule-inline-input"
+                        value={r.rulePattern}
+                        onChange={(e) => update(i, { rulePattern: e.target.value })}
+                        disabled={!r.createRule}
+                      />
+                    </label>
+                  )}
+                </Card>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// Fase 3.6: gerenciar as regras de categorização aprendidas.
+function Regras({ data, api }) {
+  const [pattern, setPattern] = useState("");
+  const [categoryId, setCategoryId] = useState(
+    data.categories[0]?.id || ""
+  );
+
+  const cm = Object.fromEntries(data.categories.map((c) => [c.id, c]));
+  const rules = [...data.categoryRules].sort((a, b) =>
+    a.pattern.localeCompare(b.pattern)
+  );
+
+  const add = () => {
+    if (!pattern.trim() || !categoryId) {
+      alert("Informe o padrão e a categoria.");
+      return;
+    }
+    api.saveRule({
+      id: uid(),
+      pattern: pattern.trim().toLowerCase(),
+      categoryId,
+      createdAt: new Date().toISOString(),
+    });
+    setPattern("");
+  };
+
+  return (
+    <div className="col gap-4">
+      <Card className="p-4">
+        <h3>Nova regra</h3>
+        <p className="item-sub" style={{ marginTop: 4 }}>
+          Quando a descrição <b>contém</b> o texto, a categoria é sugerida
+          automaticamente na próxima importação.
+        </p>
+
+        <div className="grid2 gap-3 mt-3">
+          <Field label="Contém (texto)">
+            <TextInput
+              value={pattern}
+              onChange={(e) => setPattern(e.target.value)}
+              placeholder="ifood"
+            />
+          </Field>
+
+          <Field label="Categoria">
+            <SelectInput
+              value={categoryId}
+              onChange={(e) => setCategoryId(e.target.value)}
+            >
+              {data.categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name} ({c.type})
+                </option>
+              ))}
+            </SelectInput>
+          </Field>
+        </div>
+
+        <Btn onClick={add} className="mt-3">
+          <Plus size={16} />
+          Adicionar regra
+        </Btn>
+      </Card>
+
+      <div className="col gap-2">
+        {rules.length === 0 && (
+          <p className="empty">Nenhuma regra ainda.</p>
+        )}
+
+        {rules.map((r) => (
+          <Card key={r.id} className="p-3 row between">
+            <span className="item-title" style={{ minWidth: 0 }}>
+              contém <b>{r.pattern}</b> →{" "}
+              {cm[r.categoryId]?.name || "categoria removida"}
+            </span>
+            <DeleteButton onClick={() => api.delRule(r.id)} />
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function Mensal({ data, api, month, setMonth }) {
@@ -1342,6 +2069,8 @@ function Mensal({ data, api, month, setMonth }) {
     cardId: "",
     isInstallment: false,
     installmentsTotal: "1",
+    isRecurring: false,
+    recurringMonths: "12",
   });
 
   const [adding, setAdding] = useState(false);
@@ -1380,6 +2109,19 @@ function Mensal({ data, api, month, setMonth }) {
 
   const me = data.entries
     .filter((e) => {
+      // Despesas de cartão caem no mês da FATURA (invoiceMonth/invoiceYear),
+      // não no mês da data da compra — senão a compra aparece no mês errado
+      // quando o cartão fecha perto da virada do mês.
+      if (
+        e.paymentMethod === "credit_card" &&
+        e.invoiceMonth !== null &&
+        e.invoiceMonth !== undefined &&
+        e.invoiceYear !== null &&
+        e.invoiceYear !== undefined
+      ) {
+        return Number(e.invoiceMonth) === month && Number(e.invoiceYear) === thisYear;
+      }
+
       const d = new Date(e.date);
       return d.getMonth() === month && d.getFullYear() === thisYear;
     })
@@ -1438,7 +2180,47 @@ function Mensal({ data, api, month, setMonth }) {
 
       const entriesToSave = [];
 
-      if (installmentsTotal === 1) {
+      // Recorrência (Fase 2.1): só para lançamentos não parcelados. Gera uma
+      // ocorrência por mês, avançando a data e recalculando a fatura por mês.
+      const isRecurring = f.isRecurring && !(isCreditCard && f.isInstallment);
+      const recurringMonths = isRecurring
+        ? Math.max(2, Math.min(60, Number(f.recurringMonths || 12)))
+        : 1;
+
+      if (installmentsTotal === 1 && isRecurring) {
+        const recurringGroupId = uid();
+        const baseDate = new Date(`${f.date}T12:00:00`);
+        const baseDay = baseDate.getDate();
+
+        for (let index = 0; index < recurringMonths; index++) {
+          const occYear = baseDate.getFullYear();
+          const occMonth = baseDate.getMonth() + index;
+          const safeDay = getSafeDay(occYear, occMonth, baseDay);
+          const occDate = new Date(occYear, occMonth, safeDay, 12, 0, 0);
+          const occIso = formatDateISO(occDate);
+
+          const invoiceInfo =
+            isCreditCard && selectedCard
+              ? calculateInvoiceInfo(occIso, selectedCard, 0)
+              : { invoiceMonth: null, invoiceYear: null, invoiceDueDate: "" };
+
+          entriesToSave.push({
+            id: uid(),
+            date: occIso,
+            categoryId: f.categoryId,
+            desc: f.desc,
+            value: rawValue,
+            type: f.type,
+            paymentMethod: f.paymentMethod,
+            cardId: isCreditCard ? f.cardId : "",
+            installmentGroupId: "",
+            installmentNumber: 1,
+            installmentsTotal: 1,
+            recurringGroupId,
+            ...invoiceInfo,
+          });
+        }
+      } else if (installmentsTotal === 1) {
         const invoiceInfo =
           isCreditCard && selectedCard
             ? calculateInvoiceInfo(f.date, selectedCard, 0)
@@ -1492,6 +2274,8 @@ function Mensal({ data, api, month, setMonth }) {
         value: "",
         isInstallment: false,
         installmentsTotal: "1",
+        isRecurring: false,
+        recurringMonths: "12",
         cardId: f.paymentMethod === "credit_card" ? f.cardId : "",
       });
     } catch (error) {
@@ -1523,6 +2307,10 @@ function Mensal({ data, api, month, setMonth }) {
 
   return (
     <div className="col gap-4">
+      <p className="viewing-month">
+        Vendo: <strong>{MESES[month]} de {thisYear}</strong>
+      </p>
+
       <div className="months">
         {MABR.map((m, idx) => (
           <button
@@ -1534,6 +2322,8 @@ function Mensal({ data, api, month, setMonth }) {
           </button>
         ))}
       </div>
+
+      <CartoesCarrossel data={data} year={thisYear} month={month} />
 
       <div className="grid2 gap-3">
         <StatCard
@@ -1703,6 +2493,31 @@ function Mensal({ data, api, month, setMonth }) {
             </Field>
           )}
 
+          {!(f.paymentMethod === "credit_card" && f.isInstallment) && (
+            <Field label="Repetir todo mês?">
+              <SelectInput
+                value={f.isRecurring ? "yes" : "no"}
+                onChange={(e) =>
+                  setF({ ...f, isRecurring: e.target.value === "yes" })
+                }
+              >
+                <option value="no">Não</option>
+                <option value="yes">Sim (fixo)</option>
+              </SelectInput>
+            </Field>
+          )}
+
+          {f.isRecurring && !(f.paymentMethod === "credit_card" && f.isInstallment) && (
+            <Field label="Por quantos meses">
+              <NumberInput
+                value={f.recurringMonths}
+                onChange={(e) => setF({ ...f, recurringMonths: e.target.value })}
+                min="2"
+                max="60"
+              />
+            </Field>
+          )}
+
           <Field label="Descrição">
             <TextInput
               value={f.desc}
@@ -1735,6 +2550,21 @@ function Mensal({ data, api, month, setMonth }) {
           );
         })()}
 
+        {f.paymentMethod === "credit_card" && f.cardId && f.date && (() => {
+          const card = cardMap[f.cardId];
+          if (!card) return null;
+
+          const info = calculateInvoiceInfo(f.date, card, 0);
+
+          return (
+            <div className="installment-preview">
+              Essa compra entra na fatura de{" "}
+              <strong>{MESES[info.invoiceMonth]} de {info.invoiceYear}</strong>
+              {" "}(vence {info.invoiceDueDate?.split("-").reverse().join("/")})
+            </div>
+          );
+        })()}
+
         <Btn onClick={add} className="mt-3" data-tour="entry-add" disabled={adding}>
           <Plus size={16} />
           {adding ? "Adicionando..." : "Adicionar"}
@@ -1747,6 +2577,7 @@ function Mensal({ data, api, month, setMonth }) {
           const card = e.cardId ? cardMap[e.cardId] : null;
           const hasInvoice = e.invoiceDueDate && e.paymentMethod === "credit_card";
           const isInstallment = Number(e.installmentsTotal || 1) > 1;
+          const isRecurring = !!e.recurringGroupId;
 
           return (
             <Card key={e.id} className="p-3 row between">
@@ -1767,6 +2598,7 @@ function Mensal({ data, api, month, setMonth }) {
                     {isInstallment
                       ? ` · Parcela ${e.installmentNumber}/${e.installmentsTotal}`
                       : ""}
+                    {isRecurring ? " · 🔁 Fixo" : ""}
                     {hasInvoice ? ` · Vence ${e.invoiceDueDate}` : ""}
                     {e.paid ? " · " : ""}
                     {e.paid && <b className="good-text">paga ✓</b>}
@@ -1787,7 +2619,25 @@ function Mensal({ data, api, month, setMonth }) {
                   {fmt(e.value)}
                 </span>
 
-                <DeleteButton onClick={() => api.delEntry(e.id)} />
+                <DeleteButton
+                  onClick={() => {
+                    if (isRecurring || isInstallment) {
+                      const field = isRecurring
+                        ? "recurringGroupId"
+                        : "installmentGroupId";
+                      const groupId = e[field];
+                      const label = isRecurring ? "recorrência fixa" : "parcelamento";
+                      const all = confirm(
+                        `Este lançamento faz parte de um ${label}.\n\n` +
+                          "OK = excluir a série toda\nCancelar = excluir só este mês"
+                      );
+                      if (all) api.delEntryGroup(field, groupId);
+                      else api.delEntry(e.id);
+                    } else {
+                      api.delEntry(e.id);
+                    }
+                  }}
+                />
               </div>
             </Card>
           );
@@ -1895,15 +2745,35 @@ function Mensal({ data, api, month, setMonth }) {
   );
 }
 
+const EMPTY_CARD_FORM = {
+  name: "",
+  limit: "",
+  closingDay: "25",
+  dueDay: "2",
+  color: "#7C3AED",
+  active: true,
+};
+
 function Cartoes({ data, api, month }) {
-  const [f, setF] = useState({
-    name: "",
-    limit: "",
-    closingDay: "25",
-    dueDay: "2",
-    color: "#7C3AED",
-    active: true,
-  });
+  const [f, setF] = useState(EMPTY_CARD_FORM);
+  const [editingId, setEditingId] = useState(null);
+
+  const startEdit = (card) => {
+    setEditingId(card.id);
+    setF({
+      name: card.name || "",
+      limit: String(card.limit || card.limitValue || ""),
+      closingDay: String(card.closingDay || 25),
+      dueDay: String(card.dueDay || 2),
+      color: card.color || "#7C3AED",
+      active: card.active !== false,
+    });
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setF(EMPTY_CARD_FORM);
+  };
 
   const add = () => {
     if (!f.name) {
@@ -1912,7 +2782,7 @@ function Cartoes({ data, api, month }) {
     }
 
     api.saveCard({
-      id: uid(),
+      id: editingId || uid(),
       name: f.name,
       limit: +(f.limit || 0),
       closingDay: Math.min(31, Math.max(1, +(f.closingDay || 1))),
@@ -1921,14 +2791,8 @@ function Cartoes({ data, api, month }) {
       active: f.active !== false,
     });
 
-    setF({
-      name: "",
-      limit: "",
-      closingDay: "25",
-      dueDay: "2",
-      color: "#7C3AED",
-      active: true,
-    });
+    setEditingId(null);
+    setF(EMPTY_CARD_FORM);
   };
 
   const invoiceEntries = data.entries.filter((entry) => {
@@ -2010,7 +2874,7 @@ function Cartoes({ data, api, month }) {
       </div>
 
       <Card className="p-4" data-tour="cards-card">
-        <h3>Novo cartão</h3>
+        <h3>{editingId ? "Editar cartão" : "Novo cartão"}</h3>
 
         <div className="grid2 gap-3">
           <Field label="Nome">
@@ -2077,10 +2941,18 @@ function Cartoes({ data, api, month }) {
           </Field>
         </div>
 
-        <Btn onClick={add} className="mt-3">
-          <Plus size={16} />
-          Adicionar cartão
-        </Btn>
+        <div className="row gap-2 mt-3">
+          <Btn onClick={add}>
+            {editingId ? <Pencil size={16} /> : <Plus size={16} />}
+            {editingId ? "Salvar alterações" : "Adicionar cartão"}
+          </Btn>
+
+          {editingId && (
+            <Btn variant="ghost" onClick={cancelEdit}>
+              Cancelar
+            </Btn>
+          )}
+        </div>
       </Card>
 
       <div className="col gap-3">
@@ -2115,7 +2987,10 @@ function Cartoes({ data, api, month }) {
                   </div>
                 </div>
 
-                <DeleteButton onClick={() => api.delCard(card.id)} />
+                <div className="row gap-1">
+                  <EditButton title="Editar cartão" onClick={() => startEdit(card)} />
+                  <DeleteButton onClick={() => api.delCard(card.id)} />
+                </div>
               </div>
 
               <div className="card-stats">
@@ -3182,6 +4057,144 @@ h4 {
   display: none;
 }
 
+.carousel {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 4px;
+  scrollbar-width: none;
+}
+
+.carousel::-webkit-scrollbar { display: none; }
+
+.carousel-card {
+  scroll-snap-align: start;
+  flex: 0 0 82%;
+  max-width: 300px;
+  text-align: left;
+  border: none;
+  cursor: pointer;
+  color: #fff;
+  border-radius: 18px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: 0 6px 18px rgba(0,0,0,.22);
+}
+
+.cc-name { font-weight: 700; font-size: 15px; }
+
+.cc-invoice {
+  display: flex;
+  flex-direction: column;
+}
+.cc-invoice span { font-size: 12px; opacity: .85; }
+.cc-invoice strong { font-size: 22px; }
+
+.cc-dates { font-size: 12px; opacity: .85; }
+
+.cc-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.3);
+  overflow: hidden;
+}
+.cc-bar-fill { height: 100%; background: #fff; }
+.cc-limit-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  opacity: .9;
+  margin-top: 4px;
+}
+
+.fatura-sheet { max-height: 82vh; display: flex; flex-direction: column; }
+
+.fatura-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 8px 0 12px;
+}
+.fatura-nav-label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-size: 13px;
+}
+.fatura-nav-label strong { font-size: 20px; }
+
+.fatura-list { overflow-y: auto; }
+
+.rule-inline-input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 12px;
+  background: var(--cream);
+  color: inherit;
+}
+
+.future-item {
+  padding: 6px 0;
+  border-bottom: 1px dashed var(--border);
+}
+
+.future-item:last-child {
+  border-bottom: none;
+}
+
+.app-version {
+  text-align: center;
+  font-size: 11px;
+  opacity: 0.4;
+  margin: 24px 0 8px;
+}
+
+.update-prompt {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(var(--nav-h, 64px) + 12px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: var(--navy);
+  color: #fff;
+  box-shadow: 0 8px 24px rgba(0,0,0,.28);
+  font-size: 13px;
+}
+
+.update-prompt button {
+  border: none;
+  background: var(--teal);
+  color: #fff;
+  font-weight: 700;
+  padding: 6px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.viewing-month {
+  margin: 0;
+  font-size: 13px;
+  opacity: 0.7;
+}
+
+.viewing-month strong {
+  opacity: 1;
+  color: var(--teal);
+}
+
 .month-chip {
   padding: 6px 12px;
   border-radius: 999px;
@@ -3290,6 +4303,30 @@ input:checked + .slider:before {
 }
 
 .delete-btn:active {
+  transform: scale(.96);
+}
+
+.edit-btn {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: 12px;
+  border: 1px solid rgba(46, 139, 124, .25);
+  background: rgba(46, 139, 124, .08);
+  color: var(--teal, #2E8B7C);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.edit-btn:hover {
+  transform: translateY(-1px);
+  background: rgba(46, 139, 124, .14);
+  border-color: rgba(46, 139, 124, .45);
+}
+
+.edit-btn:active {
   transform: scale(.96);
 }
 
