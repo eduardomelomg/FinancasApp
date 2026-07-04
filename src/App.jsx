@@ -34,11 +34,13 @@ import {
   CalendarClock,
   FileUp,
   Sparkles,
+  Landmark,
 } from "lucide-react";
 import { getAll, put, remove, exportAll, importAll, seedIfEmpty } from "./db.js";
 import { useRegisterSW } from "virtual:pwa-register/react";
 import {
   parseStatement,
+  parseAccountInfo,
   suggestPattern,
   matchRule,
 } from "./lib/import.js";
@@ -628,6 +630,7 @@ export default function App() {
   const [goals, setGoals] = useState([]);
   const [cards, setCards] = useState([]);
   const [categoryRules, setCategoryRules] = useState([]);
+  const [accounts, setAccounts] = useState([]);
 
   const [loaded, setLoaded] = useState(false);
   const [hasLocalData, setHasLocalData] = useState(false);
@@ -708,13 +711,14 @@ export default function App() {
     user?.user_metadata?.avatar_url || user?.user_metadata?.picture || "";
 
   const reload = useCallback(async () => {
-    const [c, e, i, g, ca, rules] = await Promise.all([
+    const [c, e, i, g, ca, rules, acc] = await Promise.all([
       getAll("categories"),
       getAll("entries"),
       getAll("investments"),
       getAll("goals"),
       getAll("cards"),
       getAll("categoryRules"),
+      getAll("accounts"),
     ]);
 
     setCategories(c);
@@ -723,6 +727,7 @@ export default function App() {
     setGoals(g);
     setCards(ca);
     setCategoryRules(rules);
+    setAccounts(acc);
     setLoaded(true);
   }, []);
 
@@ -840,6 +845,16 @@ export default function App() {
         showToast(e?.message || "Erro ao remover a série.", "error", "Erro");
         throw e;
       }
+    },
+
+    saveAccount: async (x) => {
+      await safeCall(put, "accounts", x);
+      showToast("Conta salva com sucesso.");
+    },
+
+    delAccount: async (id) => {
+      await safeCall(remove, "accounts", id);
+      showToast("Conta excluída.");
     },
 
     saveRule: async (x) => {
@@ -1008,6 +1023,7 @@ export default function App() {
     goals,
     cards,
     categoryRules,
+    accounts,
   };
 
   if (!loaded) {
@@ -1116,6 +1132,7 @@ export default function App() {
         {tab === "panorama" && (
           <Panorama
             data={data}
+            month={month}
             darkMode={darkMode}
             chartTextColor={chartTextColor}
             chartGridColor={chartGridColor}
@@ -1127,6 +1144,8 @@ export default function App() {
         )}
 
         {tab === "categorias" && <Categorias data={data} api={api} />}
+
+        {tab === "contas" && <Contas data={data} api={api} month={month} />}
 
         {tab === "futuro" && <Futuro data={data} />}
 
@@ -1219,6 +1238,7 @@ export default function App() {
 
 // Abas secundárias, acessadas pelo botão "Mais".
 const MORE_TABS = [
+  { id: "contas", icon: Landmark, label: "Contas / Bancos" },
   { id: "futuro", icon: CalendarClock, label: "A pagar" },
   { id: "importar", icon: FileUp, label: "Importar extrato" },
   { id: "regras", icon: Tags, label: "Regras de categoria" },
@@ -1251,28 +1271,39 @@ function MoreSheet({ current, onSelect, onClose }) {
   );
 }
 
-function Panorama({ data, darkMode, chartTextColor, chartGridColor }) {
-  const ye = data.entries.filter(
-    (e) => localDate(e.date).getFullYear() === thisYear
-  );
+function Panorama({ data, month, darkMode, chartTextColor, chartGridColor }) {
+  // Toggle Mês / Ano. Padrão: mês (a visão que o usuário mais espera).
+  const [view, setView] = useState("month");
+  const isMonth = view === "month";
 
-  const rec = ye
+  // Escopo por competência (cartão cai na fatura, resto na data). Ano = ano
+  // todo; Mês = o mês selecionado na aba Mês.
+  const scope = data.entries.filter((e) => {
+    const { year, month: m } = entryCompetence(e);
+    if (year !== thisYear) return false;
+    return isMonth ? m === month : true;
+  });
+
+  const rec = scope
     .filter((e) => e.type === "receita")
     .reduce((a, e) => a + e.value, 0);
 
-  const des = ye
+  const des = scope
     .filter((e) => e.type === "despesa")
     .reduce((a, e) => a + e.value, 0);
 
   const saldo = rec - des;
   const inv = data.investments.reduce((a, i) => a + i.value, 0);
 
-  const creditCardYear = ye
+  const creditCard = scope
     .filter((e) => e.paymentMethod === "credit_card")
     .reduce((a, e) => a + e.value, 0);
 
   const bm = MESES.map((_, idx) => {
-    const es = ye.filter((e) => localDate(e.date).getMonth() === idx);
+    const es = data.entries.filter((e) => {
+      const { year, month: m } = entryCompetence(e);
+      return year === thisYear && m === idx;
+    });
 
     return {
       mes: MABR[idx],
@@ -1288,7 +1319,7 @@ function Panorama({ data, darkMode, chartTextColor, chartGridColor }) {
   const cm = Object.fromEntries(data.categories.map((c) => [c.id, c]));
   const bc = {};
 
-  for (const e of ye.filter((e) => e.type === "despesa")) {
+  for (const e of scope.filter((e) => e.type === "despesa")) {
     const c = cm[e.categoryId];
     const n = c?.name || "Outros";
     bc[n] = (bc[n] || 0) + e.value;
@@ -1297,34 +1328,51 @@ function Panorama({ data, darkMode, chartTextColor, chartGridColor }) {
   const pie = Object.entries(bc).map(([name, value]) => ({ name, value }));
   const pcs = data.categories.map((c) => c.color);
 
+  const sfx = isMonth ? MABR[month] : "ano";
+
   return (
     <div className="col gap-4">
+      <div className="panorama-toggle">
+        <button
+          className={isMonth ? "pt-active" : ""}
+          onClick={() => setView("month")}
+        >
+          {MESES[month]}
+        </button>
+        <button
+          className={!isMonth ? "pt-active" : ""}
+          onClick={() => setView("year")}
+        >
+          Ano {thisYear}
+        </button>
+      </div>
+
       <div className="grid2 gap-3">
         <StatCard
           icon={TrendingUp}
-          label="Receitas (ano)"
+          label={`Receitas (${sfx})`}
           value={fmt(rec)}
           accent={GOOD}
         />
 
         <StatCard
           icon={TrendingUp}
-          label="Despesas (ano)"
+          label={`Despesas (${sfx})`}
           value={fmt(des)}
           accent={BAD}
         />
 
         <StatCard
           icon={Wallet}
-          label="Saldo (ano)"
+          label={`Saldo (${sfx})`}
           value={fmt(saldo)}
           accent={saldo >= 0 ? GOOD : BAD}
         />
 
         <StatCard
           icon={CreditCard}
-          label="Cartão (ano)"
-          value={fmt(creditCardYear)}
+          label={`Cartão (${sfx})`}
+          value={fmt(creditCard)}
           accent={GOLD}
         />
 
@@ -1367,7 +1415,7 @@ function Panorama({ data, darkMode, chartTextColor, chartGridColor }) {
 
       {pie.length > 0 && (
         <Card className="p-4">
-          <h3>Despesas por categoria (ano)</h3>
+          <h3>Despesas por categoria ({sfx})</h3>
 
           <ResponsiveContainer width="100%" height={220}>
             <PieChart>
@@ -1502,6 +1550,228 @@ function entryCompetence(e) {
   }
   const d = localDate(e.date);
   return { year: d.getFullYear(), month: d.getMonth() };
+}
+
+// Contas/Bancos: cadastro, saldo e despesas por banco (do mês selecionado).
+const ACCOUNT_KINDS = {
+  checking: "Conta corrente",
+  savings: "Poupança",
+  wallet: "Carteira / Dinheiro",
+  credit: "Cartão de crédito",
+};
+
+function Contas({ data, api, month }) {
+  const empty = {
+    id: "",
+    name: "",
+    kind: "checking",
+    color: "#4A6FA5",
+    active: true,
+  };
+  const [f, setF] = useState(empty);
+  const editing = !!f.id;
+
+  const save = () => {
+    if (!f.name.trim()) {
+      alert("Informe o nome da conta/banco.");
+      return;
+    }
+    api.saveAccount({
+      id: f.id || uid(),
+      name: f.name.trim(),
+      kind: f.kind || "checking",
+      bankId: f.bankId || "",
+      acctId: f.acctId || "",
+      color: f.color || "#4A6FA5",
+      active: f.active !== false,
+    });
+    setF(empty);
+  };
+
+  // Lançamentos do mês selecionado, por competência (cartão usa fatura).
+  const monthEntries = data.entries.filter((e) => {
+    const { year, month: m } = entryCompetence(e);
+    return year === thisYear && m === month;
+  });
+
+  const statsFor = (accountId) => {
+    const items = monthEntries.filter((e) => e.accountId === accountId);
+    const entradas = items
+      .filter((e) => e.type === "receita")
+      .reduce((a, e) => a + e.value, 0);
+    const saidas = items
+      .filter((e) => e.type === "despesa")
+      .reduce((a, e) => a + e.value, 0);
+    return { entradas, saidas, saldo: entradas - saidas, count: items.length };
+  };
+
+  const totalSaidas = data.accounts.reduce(
+    (a, acc) => a + statsFor(acc.id).saidas,
+    0
+  );
+  const semConta = statsFor("").saidas; // despesas sem banco definido
+
+  return (
+    <div className="col gap-4">
+      <div className="grid2 gap-3">
+        <StatCard
+          icon={Landmark}
+          label={`Contas cadastradas`}
+          value={String(data.accounts.length)}
+          accent={TEAL}
+        />
+        <StatCard
+          icon={TrendingUp}
+          label={`Despesas em ${MESES[month]}`}
+          value={fmt(totalSaidas)}
+          accent={BAD}
+        />
+      </div>
+
+      <Card className="p-4">
+        <h3>{editing ? "Editar conta" : "Nova conta / banco"}</h3>
+
+        <div className="grid2 gap-3 mt-2">
+          <Field label="Nome">
+            <TextInput
+              value={f.name}
+              onChange={(e) => setF({ ...f, name: e.target.value })}
+              placeholder="Nubank, Itaú, Carteira..."
+            />
+          </Field>
+
+          <Field label="Tipo">
+            <SelectInput
+              value={f.kind}
+              onChange={(e) => setF({ ...f, kind: e.target.value })}
+            >
+              <option value="checking">Conta corrente</option>
+              <option value="savings">Poupança</option>
+              <option value="wallet">Carteira / Dinheiro</option>
+            </SelectInput>
+          </Field>
+
+          <Field label="Cor">
+            <div className="color-picker-wrap">
+              <div className="color-preview" style={{ background: f.color }}>
+                <Palette size={16} />
+              </div>
+              <input
+                type="color"
+                value={f.color}
+                onChange={(e) => setF({ ...f, color: e.target.value })}
+                className="color-inp"
+              />
+              <span className="color-value">{f.color}</span>
+            </div>
+          </Field>
+
+          <Field label="Status">
+            <SelectInput
+              value={f.active ? "active" : "inactive"}
+              onChange={(e) => setF({ ...f, active: e.target.value === "active" })}
+            >
+              <option value="active">Ativa</option>
+              <option value="inactive">Inativa</option>
+            </SelectInput>
+          </Field>
+        </div>
+
+        <div className="row gap-2 mt-3">
+          <Btn onClick={save}>
+            <Plus size={16} />
+            {editing ? "Salvar alterações" : "Adicionar conta"}
+          </Btn>
+          {editing && (
+            <Btn variant="ghost" onClick={() => setF(empty)}>
+              Cancelar
+            </Btn>
+          )}
+        </div>
+      </Card>
+
+      <div className="col gap-3">
+        {data.accounts.length === 0 && (
+          <p className="empty">
+            Nenhuma conta ainda. Cadastre seus bancos para ver as despesas
+            separadas por conta.
+          </p>
+        )}
+
+        {data.accounts.map((acc) => {
+          const s = statsFor(acc.id);
+          return (
+            <Card key={acc.id} className="p-4">
+              <div className="row between mb-2">
+                <div className="row gap-2">
+                  <div
+                    className="card-color-badge"
+                    style={{ background: acc.color || "#4A6FA5" }}
+                  >
+                    <Landmark size={18} />
+                  </div>
+                  <div>
+                    <h4>{acc.name}</h4>
+                    <p className="item-sub">
+                      {ACCOUNT_KINDS[acc.kind] || "Conta"}
+                      {acc.active === false ? " · inativa" : ""}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="row gap-2">
+                  <EditButton
+                    onClick={() =>
+                      setF({
+                        id: acc.id,
+                        name: acc.name,
+                        kind: acc.kind || "checking",
+                        bankId: acc.bankId || "",
+                        acctId: acc.acctId || "",
+                        color: acc.color || "#4A6FA5",
+                        active: acc.active !== false,
+                      })
+                    }
+                  />
+                  <DeleteButton onClick={() => api.delAccount(acc.id)} />
+                </div>
+              </div>
+
+              <div className="card-stats">
+                <div>
+                  <span>Entradas ({MABR[month]})</span>
+                  <strong className="good-text">{fmt(s.entradas)}</strong>
+                </div>
+                <div>
+                  <span>Despesas ({MABR[month]})</span>
+                  <strong className="bad-text">{fmt(s.saidas)}</strong>
+                </div>
+                <div>
+                  <span>Saldo do mês</span>
+                  <strong className={s.saldo >= 0 ? "good-text" : "bad-text"}>
+                    {fmt(s.saldo)}
+                  </strong>
+                </div>
+                <div>
+                  <span>Lançamentos</span>
+                  <strong>{s.count}</strong>
+                </div>
+              </div>
+            </Card>
+          );
+        })}
+
+        {semConta > 0 && (
+          <Card className="p-3 row between">
+            <span className="item-sub">
+              Despesas sem banco definido em {MESES[month]}
+            </span>
+            <strong className="bad-text">{fmt(semConta)}</strong>
+          </Card>
+        )}
+      </div>
+    </div>
+  );
 }
 
 // Fase 2.2: soma tudo já comprometido em meses FUTUROS (parcelas +
@@ -1785,6 +2055,17 @@ function Importar({ data, api, showToast, beforeBulk }) {
         return;
       }
 
+      // Auto-detecção da conta/banco a partir do OFX. Se já existe uma conta
+      // com o mesmo acctId, pré-seleciona; senão guarda os dados p/ criar.
+      const acctInfo = parseAccountInfo(text);
+      setDetected(acctInfo);
+      if (acctInfo) {
+        const match = data.accounts.find(
+          (a) => acctInfo.acctId && a.acctId === acctInfo.acctId
+        );
+        if (match) setBulkAccount(match.id);
+      }
+
       let dups = 0;
       const prepared = txs.map((t) => {
         const sig = `${t.date}|${Math.abs(t.amount)}|${t.desc.toLowerCase()}`;
@@ -1827,6 +2108,24 @@ function Importar({ data, api, showToast, beforeBulk }) {
     );
 
   const [bulkCard, setBulkCard] = useState("");
+  const [bulkAccount, setBulkAccount] = useState("");
+  const [detected, setDetected] = useState(null);
+
+  // Cria uma conta a partir dos dados detectados no OFX e a seleciona.
+  const createDetectedAccount = async () => {
+    if (!detected) return;
+    const id = uid();
+    await api.saveAccount({
+      id,
+      name: detected.org || detected.bankId || "Conta importada",
+      kind: detected.kind === "credit" ? "checking" : detected.kind || "checking",
+      bankId: detected.bankId || "",
+      acctId: detected.acctId || "",
+      color: "#4A6FA5",
+      active: true,
+    });
+    setBulkAccount(id);
+  };
 
   const importar = async () => {
     const toImport = rows.filter((r) => !r.skip && r.categoryId);
@@ -1857,6 +2156,7 @@ function Importar({ data, api, showToast, beforeBulk }) {
           type: r.type,
           paymentMethod: card ? "credit_card" : "pix",
           cardId: card ? r.cardId : "",
+          accountId: card ? "" : bulkAccount,
           installmentGroupId: "",
           installmentNumber: 1,
           installmentsTotal: 1,
@@ -1884,6 +2184,9 @@ function Importar({ data, api, showToast, beforeBulk }) {
       );
       setRows([]);
       setDupCount(0);
+      setBulkCard("");
+      setBulkAccount("");
+      setDetected(null);
     } catch (e) {
       console.error(e);
       showToast(e?.message || "Erro ao importar.", "error", "Erro");
@@ -1961,6 +2264,45 @@ function Importar({ data, api, showToast, beforeBulk }) {
                 </SelectInput>
               </div>
             )}
+
+            {/* Conta/banco de destino (para lançamentos que não são de cartão) */}
+            <div className="row gap-2" style={{ flexWrap: "wrap" }}>
+              <span className="item-sub" style={{ whiteSpace: "nowrap" }}>
+                Conta / banco:
+              </span>
+              <SelectInput
+                value={bulkAccount}
+                onChange={(e) => setBulkAccount(e.target.value)}
+                style={{ flex: 1, minWidth: 140 }}
+              >
+                <option value="">Sem conta definida</option>
+                {data.accounts
+                  .filter((a) => a.active !== false)
+                  .map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}
+                    </option>
+                  ))}
+              </SelectInput>
+            </div>
+
+            {detected &&
+              !data.accounts.some(
+                (a) => detected.acctId && a.acctId === detected.acctId
+              ) && (
+                <div className="import-detected">
+                  <span className="item-sub">
+                    Detectei a conta{" "}
+                    <b>{detected.org || detected.bankId || "do extrato"}</b>
+                    {detected.acctId ? ` (conta ${detected.acctId})` : ""}. Criar
+                    e usar nesta importação?
+                  </span>
+                  <Btn variant="ghost" onClick={createDetectedAccount}>
+                    <Plus size={14} />
+                    Criar conta
+                  </Btn>
+                </div>
+              )}
           </Card>
 
           <div className="col gap-2">
@@ -2149,6 +2491,7 @@ function Mensal({ data, api, month, setMonth }) {
     type: "despesa",
     paymentMethod: "pix",
     cardId: "",
+    accountId: "",
     isInstallment: false,
     installmentsTotal: "1",
     isRecurring: false,
@@ -2213,6 +2556,7 @@ function Mensal({ data, api, month, setMonth }) {
   const cardMap = Object.fromEntries(data.cards.map((card) => [card.id, card]));
   const filteredCategories = data.categories.filter((c) => c.type === f.type);
   const activeCards = data.cards.filter((card) => card.active !== false);
+  const activeAccounts = data.accounts.filter((acc) => acc.active !== false);
 
   const add = async () => {
     // Trava síncrona: evita gravação duplicada por toque duplo (dois taps
@@ -2295,6 +2639,7 @@ function Mensal({ data, api, month, setMonth }) {
             type: f.type,
             paymentMethod: f.paymentMethod,
             cardId: isCreditCard ? f.cardId : "",
+            accountId: isCreditCard ? "" : f.accountId,
             installmentGroupId: "",
             installmentNumber: 1,
             installmentsTotal: 1,
@@ -2321,6 +2666,7 @@ function Mensal({ data, api, month, setMonth }) {
           type: f.type,
           paymentMethod: f.paymentMethod,
           cardId: isCreditCard ? f.cardId : "",
+          accountId: isCreditCard ? "" : f.accountId,
           installmentGroupId: "",
           installmentNumber: 1,
           installmentsTotal: 1,
@@ -2539,6 +2885,22 @@ function Mensal({ data, api, month, setMonth }) {
                     </option>
                   ))
                 )}
+              </SelectInput>
+            </Field>
+          )}
+
+          {f.paymentMethod !== "credit_card" && activeAccounts.length > 0 && (
+            <Field label="Conta / Banco">
+              <SelectInput
+                value={f.accountId}
+                onChange={(e) => setF({ ...f, accountId: e.target.value })}
+              >
+                <option value="">Sem conta definida</option>
+                {activeAccounts.map((acc) => (
+                  <option key={acc.id} value={acc.id}>
+                    {acc.name}
+                  </option>
+                ))}
               </SelectInput>
             </Field>
           )}
@@ -4221,6 +4583,46 @@ h4 {
   font-size: 12px;
   background: var(--cream);
   color: inherit;
+}
+
+.panorama-toggle {
+  display: flex;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+
+.panorama-toggle button {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 9px;
+  border-radius: 10px;
+  cursor: pointer;
+  opacity: .6;
+}
+
+.panorama-toggle .pt-active {
+  background: var(--teal);
+  color: #fff;
+  opacity: 1;
+}
+
+.import-detected {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--cream);
+  border: 1px dashed var(--teal);
 }
 
 .future-item {

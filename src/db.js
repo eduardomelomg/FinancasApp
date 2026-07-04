@@ -12,6 +12,7 @@ const TABLES = {
   goals: "goals",
   cards: "cards",
   categoryRules: "category_rules",
+  accounts: "accounts",
 };
 
 // Converte camelCase do app para snake_case do banco
@@ -52,8 +53,21 @@ const toDB = (store, item) => {
     // existir no Supabase (migração pendente).
     if (item.recurringGroupId) row.recurring_group_id = item.recurringGroupId;
     if (item.importFitid) row.import_fitid = item.importFitid;
+    if (item.accountId) row.account_id = item.accountId;
 
     return row;
+  }
+
+  if (store === "accounts") {
+    return {
+      id: item.id,
+      name: item.name,
+      kind: item.kind || "checking",
+      bank_id: item.bankId || null,
+      acct_id: item.acctId || null,
+      color: item.color || "#4A6FA5",
+      active: item.active !== false,
+    };
   }
 
   if (store === "categoryRules") {
@@ -107,6 +121,20 @@ const fromDB = (store, row) => {
       invoiceDueDate: row.invoice_due_date || "",
       recurringGroupId: row.recurring_group_id || "",
       importFitid: row.import_fitid || "",
+      accountId: row.account_id || "",
+    };
+  }
+
+  if (store === "accounts") {
+    return {
+      id: row.id,
+      name: row.name,
+      kind: row.kind || "checking",
+      bankId: row.bank_id || "",
+      acctId: row.acct_id || "",
+      color: row.color || "#4A6FA5",
+      active: row.active !== false,
+      createdAt: row.created_at,
     };
   }
 

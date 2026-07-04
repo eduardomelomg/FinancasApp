@@ -105,6 +105,29 @@ export function parseStatement(text, filename = "") {
   return looksOFX ? parseOFX(text) : parseCSV(text);
 }
 
+// Extrai identificação do banco/conta do OFX (para auto-detectar a conta).
+// Retorna { bankId, acctId, org, kind } — vazio se não for OFX ou não achar.
+export function parseAccountInfo(text) {
+  const grab = (name) => tag(text, name);
+
+  const org = grab("ORG"); // nome da instituição, ex "Nubank"
+  const fid = grab("FID");
+  const isCard = /<CREDITCARDMSGSRSV1>|<CCACCTFROM>/i.test(text);
+
+  // Conta bancária: BANKID + ACCTID. Cartão: CCACCTFROM > ACCTID.
+  const bankId = grab("BANKID") || org || fid;
+  const acctId = grab("ACCTID");
+
+  if (!bankId && !acctId && !org) return null;
+
+  return {
+    bankId: (bankId || "").trim(),
+    acctId: (acctId || "").trim(),
+    org: (org || "").trim(),
+    kind: isCard ? "credit" : "checking",
+  };
+}
+
 // Sugere um padrão de regra a partir da descrição: pega o trecho antes de "*",
 // dígitos e separadores; fica com a primeira palavra significativa.
 export function suggestPattern(desc) {
