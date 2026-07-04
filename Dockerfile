@@ -1,10 +1,12 @@
 # ---------- Etapa 1: build do Vite ----------
-FROM node:20-alpine AS build
+# Node 22: o @supabase/supabase-js exige engine >=22 (em Node 20 gera EBADENGINE).
+FROM node:22-alpine AS build
 WORKDIR /app
 
-# Instala dependências (usa o lockfile para builds reproduzíveis)
+# Instala dependências (usa o lockfile para builds reproduzíveis).
+# --no-audit --no-fund deixam o passo mais leve (menos rede/trabalho no build).
 COPY package*.json ./
-RUN npm ci
+RUN npm ci --no-audit --no-fund
 
 # Variáveis do Supabase precisam existir no BUILD (o Vite embute no bundle).
 # No Coolify, marque estas env vars como "Build Variable".
