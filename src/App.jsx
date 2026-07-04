@@ -1253,7 +1253,7 @@ function MoreSheet({ current, onSelect, onClose }) {
 
 function Panorama({ data, darkMode, chartTextColor, chartGridColor }) {
   const ye = data.entries.filter(
-    (e) => new Date(e.date).getFullYear() === thisYear
+    (e) => localDate(e.date).getFullYear() === thisYear
   );
 
   const rec = ye
@@ -1272,7 +1272,7 @@ function Panorama({ data, darkMode, chartTextColor, chartGridColor }) {
     .reduce((a, e) => a + e.value, 0);
 
   const bm = MESES.map((_, idx) => {
-    const es = ye.filter((e) => new Date(e.date).getMonth() === idx);
+    const es = ye.filter((e) => localDate(e.date).getMonth() === idx);
 
     return {
       mes: MABR[idx],
@@ -1426,6 +1426,23 @@ function formatDateISO(date) {
   return date.toISOString().slice(0, 10);
 }
 
+// Interpreta "YYYY-MM-DD" no fuso LOCAL (meio-dia), evitando que datas sem hora
+// sejam lidas como meia-noite UTC e "voltem" um dia (ex.: 01/07 virar 30/06 no
+// Brasil, UTC-3). Use SEMPRE isto para extrair mês/ano de um lançamento.
+function localDate(dateStr) {
+  if (!dateStr) return new Date(NaN);
+  const s = String(dateStr);
+  return new Date(s.length > 10 ? s : `${s}T12:00:00`);
+}
+
+// "Hoje" no fuso local como "YYYY-MM-DD" (evita gravar o dia seguinte perto da
+// meia-noite, que é o que toISOString faria por usar UTC).
+function todayISO() {
+  const d = new Date();
+  const off = d.getTimezoneOffset() * 60000;
+  return new Date(d - off).toISOString().slice(0, 10);
+}
+
 function calculateInvoiceInfo(purchaseDateString, card, installmentIndex = 0) {
   const purchaseDate = new Date(`${purchaseDateString}T12:00:00`);
   const purchaseDay = purchaseDate.getDate();
@@ -1483,7 +1500,7 @@ function entryCompetence(e) {
   ) {
     return { year: Number(e.invoiceYear), month: Number(e.invoiceMonth) };
   }
-  const d = new Date(`${e.date}T12:00:00`);
+  const d = localDate(e.date);
   return { year: d.getFullYear(), month: d.getMonth() };
 }
 
@@ -2125,7 +2142,7 @@ function Mensal({ data, api, month, setMonth }) {
     data.cards.find((card) => card.active !== false)?.id || "";
 
   const [f, setF] = useState({
-    date: new Date().toISOString().slice(0, 10),
+    date: todayISO(),
     categoryId: getFirstCategoryByType("despesa"),
     desc: "",
     value: "",
@@ -2187,7 +2204,7 @@ function Mensal({ data, api, month, setMonth }) {
         return Number(e.invoiceMonth) === month && Number(e.invoiceYear) === thisYear;
       }
 
-      const d = new Date(e.date);
+      const d = localDate(e.date);
       return d.getMonth() === month && d.getFullYear() === thisYear;
     })
     .sort((a, b) => b.date.localeCompare(a.date));
@@ -3145,7 +3162,7 @@ function Cartoes({ data, api, month }) {
 
 function Investimentos({ data, api, darkMode, chartTextColor, chartGridColor }) {
   const [f, setF] = useState({
-    date: new Date().toISOString().slice(0, 10),
+    date: todayISO(),
     name: "",
     type: "Renda Fixa",
     value: "",
