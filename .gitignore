@@ -6,3 +6,6 @@ dist-ssr
 .DS_Store
 .vercel
 .env
+
+# Contexto para Claude web (local, não versionar)
+CONTEXTO-CLAUDE-WEB.md
