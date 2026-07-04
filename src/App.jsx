@@ -1448,7 +1448,7 @@ function Panorama({ data, month, darkMode, chartTextColor, chartGridColor }) {
         </Card>
       )}
 
-      {ye.length === 0 && (
+      {scope.length === 0 && (
         <Card className="p-5">
           <p style={{ fontSize: 14, opacity: 0.6, margin: 0 }}>
             Registre lançamentos na aba <b>Mês</b> para o panorama se preencher.
