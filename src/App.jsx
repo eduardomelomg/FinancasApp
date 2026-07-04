@@ -33,6 +33,7 @@ import {
   Pencil,
   CalendarClock,
   FileUp,
+  Sparkles,
 } from "lucide-react";
 import { getAll, put, remove, exportAll, importAll, seedIfEmpty } from "./db.js";
 import { useRegisterSW } from "virtual:pwa-register/react";
@@ -249,12 +250,42 @@ function UpdatePrompt() {
     },
   });
 
-  if (!needRefresh) return null;
+  const [dismissed, setDismissed] = useState(false);
+
+  if (!needRefresh || dismissed) return null;
 
   return (
-    <div className="update-prompt">
-      <span>Nova versão disponível</span>
-      <button onClick={() => updateServiceWorker(true)}>Atualizar</button>
+    <div className="update-overlay" onClick={() => setDismissed(true)}>
+      <div className="update-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="update-icon">
+          <Sparkles size={34} />
+        </div>
+
+        <h3 className="update-title">Nova versão disponível! ✨</h3>
+
+        <p className="update-msg">
+          Melhoramos o Grana com novidades e correções. Atualize agora para
+          aproveitar tudo — leva só um instante.
+        </p>
+
+        <div className="update-actions">
+          <button
+            className="update-btn-primary"
+            onClick={() => updateServiceWorker(true)}
+          >
+            Atualizar agora
+          </button>
+
+          <button className="update-btn-ghost" onClick={() => setDismissed(true)}>
+            Agora não
+          </button>
+        </div>
+
+        <p className="update-hint">
+          Se fechar, a atualização acontece sozinha na próxima vez que você abrir
+          o app.
+        </p>
+      </div>
     </div>
   );
 }
@@ -4191,31 +4222,110 @@ h4 {
   margin: 24px 0 8px;
 }
 
-.update-prompt {
+.update-overlay {
   position: fixed;
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: calc(var(--nav-h, 64px) + 12px);
-  z-index: 1000;
+  inset: 0;
+  z-index: 2000;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 14px;
-  border-radius: 14px;
-  background: var(--navy);
-  color: #fff;
-  box-shadow: 0 8px 24px rgba(0,0,0,.28);
-  font-size: 13px;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, .5);
+  backdrop-filter: blur(3px);
+  animation: update-fade .25s ease;
 }
 
-.update-prompt button {
-  border: none;
-  background: var(--teal);
+.update-modal {
+  position: relative;
+  width: 100%;
+  max-width: 340px;
+  border-radius: 22px;
+  padding: 28px 22px 20px;
+  text-align: center;
+  background: var(--panel, #fff);
+  color: var(--ink);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, .35);
+  animation: update-pop .35s cubic-bezier(.18, .89, .32, 1.28);
+}
+
+.update-icon {
+  width: 66px;
+  height: 66px;
+  margin: 0 auto 14px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   color: #fff;
+  background: linear-gradient(135deg, var(--teal, #2E8B7C), var(--gold, #D3A44B));
+  box-shadow: 0 8px 20px rgba(46, 139, 124, .4);
+  animation: update-bounce 1.6s ease-in-out infinite;
+}
+
+.update-title {
+  margin: 0 0 8px;
+  font-size: 19px;
+}
+
+.update-msg {
+  margin: 0 0 20px;
+  font-size: 14px;
+  opacity: .8;
+  line-height: 1.45;
+}
+
+.update-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.update-btn-primary {
+  border: none;
+  border-radius: 14px;
+  padding: 13px;
+  font-size: 15px;
   font-weight: 700;
-  padding: 6px 12px;
-  border-radius: 10px;
+  color: #fff;
   cursor: pointer;
+  background: linear-gradient(135deg, var(--teal, #2E8B7C), var(--gold, #D3A44B));
+  box-shadow: 0 6px 16px rgba(46, 139, 124, .35);
+  transition: transform .1s ease;
+}
+
+.update-btn-primary:active { transform: scale(.97); }
+
+.update-btn-ghost {
+  border: none;
+  background: transparent;
+  color: inherit;
+  opacity: .6;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 6px;
+  cursor: pointer;
+}
+
+.update-hint {
+  margin: 14px 0 0;
+  font-size: 11.5px;
+  opacity: .5;
+  line-height: 1.4;
+}
+
+@keyframes update-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes update-pop {
+  from { opacity: 0; transform: translateY(16px) scale(.94); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes update-bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-7px); }
 }
 
 .viewing-month {
