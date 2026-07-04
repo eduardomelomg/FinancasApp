@@ -1712,10 +1712,27 @@ function Importar({ data, api, showToast, beforeBulk }) {
 
     try {
       const text = await file.text();
+
+      // PDF não é suportado (é binário, não dá pra extrair transações de forma
+      // confiável). Avisa o usuário a exportar o extrato como OFX ou CSV.
+      if (/\.pdf$/i.test(file.name) || text.startsWith("%PDF")) {
+        showToast(
+          "PDF não é suportado. No app do banco, exporte o extrato/fatura como OFX ou CSV.",
+          "error",
+          "Formato inválido"
+        );
+        setRows([]);
+        return;
+      }
+
       const txs = parseStatement(text, file.name);
 
       if (txs.length === 0) {
-        showToast("Não encontrei transações nesse arquivo.", "error", "Arquivo");
+        showToast(
+          "Não encontrei transações nesse arquivo. Confirme que é um OFX/CSV de extrato.",
+          "error",
+          "Arquivo"
+        );
         setRows([]);
         return;
       }
@@ -1834,16 +1851,21 @@ function Importar({ data, api, showToast, beforeBulk }) {
       <Card className="p-4">
         <h3>Importar extrato</h3>
         <p className="item-sub" style={{ marginTop: 4 }}>
-          Aceita arquivos <b>.ofx</b> (extrato do banco ou fatura do cartão) e
-          <b> .csv</b>. A data e o valor vêm prontos do extrato — você só confere
-          a categoria. Para uma fatura de cartão, use "Aplicar a todas" e as
-          despesas caem na competência certa automaticamente.
+          Aceita <b>.ofx</b> (extrato do banco ou fatura do cartão) e <b>.csv</b>.
+          <b> PDF não funciona</b> — no app do banco, procure "exportar/compartilhar"
+          e escolha OFX ou CSV. A data e o valor vêm prontos; você só confere a
+          categoria. Para fatura de cartão, use "Aplicar a todas" e as despesas
+          caem na competência certa automaticamente.
         </p>
 
+        {/*
+          Sem "accept": o iOS/iPhone acinzenta arquivos .ofx (extensão que ele
+          não reconhece), impedindo a seleção. Como detectamos o formato pelo
+          conteúdo do arquivo, não filtramos por extensão aqui.
+        */}
         <input
           ref={fileRef}
           type="file"
-          accept=".ofx,.csv,.txt"
           onChange={handleFile}
           style={{ display: "none" }}
         />
