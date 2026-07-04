@@ -619,8 +619,7 @@ function Tour({ tab, setTab, onFinish }) {
 export default function App() {
   const { signOut, user, updateProfile, uploadAvatar, deleteAvatar } = useAuth();
 
-  const [tab, setTab] = useState("panorama");
-  const [showMore, setShowMore] = useState(false);
+  const [tab, setTab] = useState("mensal");
   const [month, setMonth] = useState(new Date().getMonth());
   const navRef = useRef(null);
 
@@ -1034,12 +1033,17 @@ export default function App() {
         style={{
           minHeight: "100vh",
           display: "flex",
+          flexDirection: "column",
+          gap: 14,
           alignItems: "center",
           justifyContent: "center",
           background: "#151E2E",
         }}
       >
         <Logo size={76} radius={22} />
+        <span style={{ color: "#8A94A6", fontSize: 12, letterSpacing: 0.5 }}>
+          Grana v{APP_VERSION}
+        </span>
       </div>
     );
   }
@@ -1079,22 +1083,12 @@ export default function App() {
           </div>
 
           <div className="row gap-1" style={{ marginLeft: "auto" }}>
-            <button className="icon-btn" onClick={doExport} title="Exportar backup">
-              <Download size={18} color="#fff" />
-            </button>
-
-            <label className="icon-btn" title="Importar backup">
-              <Upload size={18} color="#fff" />
-              <input
-                type="file"
-                accept="application/json"
-                onChange={doImport}
-                style={{ display: "none" }}
-              />
-            </label>
-
-            <button className="icon-btn" onClick={signOut} title="Sair">
-              <LogOut size={18} color="#fff" />
+            <button
+              className="icon-btn"
+              onClick={() => setTab("config")}
+              title="Ajustes"
+            >
+              <Settings size={18} color="#fff" />
             </button>
           </div>
         </div>
@@ -1129,9 +1123,14 @@ export default function App() {
       )}
 
       <main>
+        {tab === "mensal" && (
+          <Mensal data={data} api={api} month={month} setMonth={setMonth} showToast={showToast} beforeBulk={saveAutoBackup} />
+        )}
+
         {tab === "panorama" && (
           <Panorama
             data={data}
+            api={api}
             month={month}
             darkMode={darkMode}
             chartTextColor={chartTextColor}
@@ -1139,38 +1138,14 @@ export default function App() {
           />
         )}
 
-        {tab === "mensal" && (
-          <Mensal data={data} api={api} month={month} setMonth={setMonth} />
+        {tab === "carteira" && (
+          <Carteira data={data} api={api} month={month} />
         )}
-
-        {tab === "categorias" && <Categorias data={data} api={api} />}
-
-        {tab === "contas" && <Contas data={data} api={api} month={month} />}
-
-        {tab === "futuro" && <Futuro data={data} />}
-
-        {tab === "importar" && <Importar data={data} api={api} showToast={showToast} beforeBulk={saveAutoBackup} />}
-
-        {tab === "regras" && <Regras data={data} api={api} />}
-
-        {tab === "cartoes" && (
-          <Cartoes data={data} api={api} month={month} />
-        )}
-
-        {tab === "investimentos" && (
-          <Investimentos
-            data={data}
-            api={api}
-            darkMode={darkMode}
-            chartTextColor={chartTextColor}
-            chartGridColor={chartGridColor}
-          />
-        )}
-
-        {tab === "metas" && <Metas data={data} api={api} />}
 
         {tab === "config" && (
-          <Configuracoes
+          <Ajustes
+            data={data}
+            api={api}
             user={user}
             updateProfile={updateProfile}
             darkMode={darkMode}
@@ -1179,6 +1154,9 @@ export default function App() {
             onReplayTour={() => setShowOnboarding(true)}
             uploadAvatar={uploadAvatar}
             deleteAvatar={deleteAvatar}
+            doExport={doExport}
+            doImport={doImport}
+            signOut={signOut}
           />
         )}
 
@@ -1187,6 +1165,13 @@ export default function App() {
 
       <nav className="nav" ref={navRef}>
         <Tab
+          active={tab === "mensal"}
+          onClick={() => setTab("mensal")}
+          icon={CalendarRange}
+          label="Início"
+        />
+
+        <Tab
           active={tab === "panorama"}
           onClick={() => setTab("panorama")}
           icon={TrendingUp}
@@ -1194,84 +1179,64 @@ export default function App() {
         />
 
         <Tab
-          active={tab === "mensal"}
-          onClick={() => setTab("mensal")}
-          icon={CalendarRange}
-          label="Mês"
-        />
-
-        <Tab
-          active={tab === "cartoes"}
-          onClick={() => setTab("cartoes")}
-          icon={CreditCard}
-          label="Cartões"
-        />
-
-        <Tab
-          active={tab === "investimentos"}
-          onClick={() => setTab("investimentos")}
-          icon={PiggyBank}
-          label="Invest."
-        />
-
-        <Tab
-          active={MORE_TABS.some((t) => t.id === tab)}
-          onClick={() => setShowMore(true)}
-          icon={MoreHorizontal}
-          label="Mais"
+          active={tab === "carteira"}
+          onClick={() => setTab("carteira")}
+          icon={Wallet}
+          label="Carteira"
         />
       </nav>
-
-      {showMore && (
-        <MoreSheet
-          current={tab}
-          onSelect={(id) => {
-            setTab(id);
-            setShowMore(false);
-          }}
-          onClose={() => setShowMore(false)}
-        />
-      )}
     </div>
   );
 }
 
-// Abas secundárias, acessadas pelo botão "Mais".
-const MORE_TABS = [
-  { id: "contas", icon: Landmark, label: "Contas / Bancos" },
-  { id: "futuro", icon: CalendarClock, label: "A pagar" },
-  { id: "importar", icon: FileUp, label: "Importar extrato" },
-  { id: "regras", icon: Tags, label: "Regras de categoria" },
-  { id: "categorias", icon: Tags, label: "Categorias" },
-  { id: "metas", icon: Target, label: "Metas" },
-  { id: "config", icon: Settings, label: "Ajustes" },
-];
-
-function MoreSheet({ current, onSelect, onClose }) {
+// Modal genérico (bottom sheet) para detalhes/CRUD que não merecem aba própria.
+function DetailSheet({ title, onClose, children }) {
   return (
     <div className="sheet-overlay" onClick={onClose}>
-      <div className="sheet" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="sheet detail-sheet"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="sheet-handle" />
-        <div className="sheet-title">Mais opções</div>
-
-        {MORE_TABS.map(({ id, icon: Icon, label }) => (
-          <button
-            key={id}
-            className={`sheet-item ${current === id ? "sheet-item-active" : ""}`}
-            onClick={() => onSelect(id)}
-          >
-            <span className="sheet-item-icon">
-              <Icon size={20} />
-            </span>
-            {label}
+        <div className="row between mb-2">
+          <h3>{title}</h3>
+          <button className="icon-btn" onClick={onClose} title="Fechar">
+            <X size={18} />
           </button>
-        ))}
+        </div>
+        <div className="detail-sheet-body">{children}</div>
       </div>
     </div>
   );
 }
 
-function Panorama({ data, month, darkMode, chartTextColor, chartGridColor }) {
+// Aba CARTEIRA: cartões + contas juntos ("onde meu dinheiro está / de onde sai").
+// Reutiliza os componentes existentes de gestão, só empilhados numa página.
+function Carteira({ data, api, month }) {
+  return (
+    <div className="col gap-4">
+      <h2 className="section-h">Cartões</h2>
+      <Cartoes data={data} api={api} month={month} />
+
+      <h2 className="section-h">Contas / Bancos</h2>
+      <Contas data={data} api={api} month={month} />
+    </div>
+  );
+}
+
+function Panorama({ data, api, month, darkMode, chartTextColor, chartGridColor }) {
+  const [detail, setDetail] = useState(null);
+
+  // A pagar: total de despesas comprometidas em meses futuros (por competência).
+  const now = new Date();
+  const curKey = now.getFullYear() * 12 + now.getMonth();
+  const futureTotal = data.entries
+    .filter((e) => e.type === "despesa")
+    .reduce((a, e) => {
+      const { year, month: m } = entryCompetence(e);
+      return year * 12 + m > curKey ? a + e.value : a;
+    }, 0);
+  const investedTotal = data.investments.reduce((a, i) => a + i.value, 0);
   // Toggle Mês / Ano. Padrão: mês (a visão que o usuário mais espera).
   const [view, setView] = useState("month");
   const isMonth = view === "month";
@@ -1448,12 +1413,66 @@ function Panorama({ data, month, darkMode, chartTextColor, chartGridColor }) {
         </Card>
       )}
 
+      {/* Consultas ocasionais viram cards; o detalhe/CRUD abre em modal. */}
+      <div className="grid2 gap-3">
+        <button className="link-card" onClick={() => setDetail("futuro")}>
+          <div className="row between">
+            <span className="lc-label">A pagar (futuro)</span>
+            <CalendarClock size={16} />
+          </div>
+          <strong className="lc-value">{fmt(futureTotal)}</strong>
+          <span className="lc-hint">Comprometido nos próximos meses ›</span>
+        </button>
+
+        <button className="link-card" onClick={() => setDetail("invest")}>
+          <div className="row between">
+            <span className="lc-label">Investido</span>
+            <PiggyBank size={16} />
+          </div>
+          <strong className="lc-value">{fmt(investedTotal)}</strong>
+          <span className="lc-hint">Ver carteira ›</span>
+        </button>
+
+        <button className="link-card" onClick={() => setDetail("metas")}>
+          <div className="row between">
+            <span className="lc-label">Metas</span>
+            <Target size={16} />
+          </div>
+          <strong className="lc-value">{data.goals.length}</strong>
+          <span className="lc-hint">Ver progresso ›</span>
+        </button>
+      </div>
+
       {scope.length === 0 && (
         <Card className="p-5">
           <p style={{ fontSize: 14, opacity: 0.6, margin: 0 }}>
-            Registre lançamentos na aba <b>Mês</b> para o panorama se preencher.
+            Registre lançamentos na aba <b>Início</b> para o panorama se preencher.
           </p>
         </Card>
+      )}
+
+      {detail === "futuro" && (
+        <DetailSheet title="A pagar / compromissos futuros" onClose={() => setDetail(null)}>
+          <Futuro data={data} />
+        </DetailSheet>
+      )}
+
+      {detail === "invest" && (
+        <DetailSheet title="Investimentos" onClose={() => setDetail(null)}>
+          <Investimentos
+            data={data}
+            api={api}
+            darkMode={darkMode}
+            chartTextColor={chartTextColor}
+            chartGridColor={chartGridColor}
+          />
+        </DetailSheet>
+      )}
+
+      {detail === "metas" && (
+        <DetailSheet title="Metas" onClose={() => setDetail(null)}>
+          <Metas data={data} api={api} />
+        </DetailSheet>
       )}
     </div>
   );
@@ -3185,6 +3204,9 @@ function Mensal({ data, api, month, setMonth }) {
           </div>
         </div>
       ))}
+
+      <h4 className="section">Regras de categorização (importação)</h4>
+      <Regras data={data} api={api} />
     </div>
   );
 }
@@ -3802,6 +3824,80 @@ function Metas({ data, api }) {
           <p className="empty">Nenhuma meta cadastrada ainda.</p>
         )}
       </div>
+    </div>
+  );
+}
+
+// Ajustes (engrenagem): tudo que se mexe raramente — perfil, categorias (com
+// regras), backup, versão e sair. Não ocupa aba na navegação principal.
+function Ajustes({
+  data,
+  api,
+  user,
+  updateProfile,
+  darkMode,
+  setDarkMode,
+  showToast,
+  onReplayTour,
+  uploadAvatar,
+  deleteAvatar,
+  doExport,
+  doImport,
+  signOut,
+}) {
+  const backupRef = useRef(null);
+
+  return (
+    <div className="col gap-4">
+      <Configuracoes
+        user={user}
+        updateProfile={updateProfile}
+        darkMode={darkMode}
+        setDarkMode={setDarkMode}
+        showToast={showToast}
+        onReplayTour={onReplayTour}
+        uploadAvatar={uploadAvatar}
+        deleteAvatar={deleteAvatar}
+      />
+
+      <h2 className="section-h">Categorias e regras</h2>
+      <Categorias data={data} api={api} />
+
+      <h2 className="section-h">Backup dos dados</h2>
+      <Card className="p-4 col gap-3">
+        <p className="item-sub" style={{ margin: 0 }}>
+          Exporte seus dados em JSON (cópia de segurança e portabilidade / LGPD)
+          ou restaure a partir de um arquivo.
+        </p>
+        <div className="row gap-2">
+          <Btn onClick={doExport}>
+            <Download size={16} />
+            Exportar
+          </Btn>
+          <Btn variant="ghost" onClick={() => backupRef.current?.click()}>
+            <Upload size={16} />
+            Restaurar
+          </Btn>
+          <input
+            ref={backupRef}
+            type="file"
+            accept="application/json"
+            onChange={doImport}
+            style={{ display: "none" }}
+          />
+        </div>
+      </Card>
+
+      <h2 className="section-h">Sobre</h2>
+      <Card className="p-3 row between">
+        <span className="item-sub">Versão do app</span>
+        <strong>Grana v{APP_VERSION}</strong>
+      </Card>
+
+      <Btn variant="ghost" onClick={signOut}>
+        <LogOut size={16} />
+        Sair da conta
+      </Btn>
     </div>
   );
 }
@@ -4583,6 +4679,51 @@ h4 {
   font-size: 12px;
   background: var(--cream);
   color: inherit;
+}
+
+.section-h {
+  font-size: 16px;
+  margin: 6px 2px -4px;
+  opacity: .9;
+}
+
+.link-card {
+  text-align: left;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: inherit;
+  border-radius: 16px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  cursor: pointer;
+}
+
+.link-card .lc-label {
+  font-size: 12px;
+  opacity: .7;
+}
+
+.link-card .lc-value {
+  font-size: 20px;
+}
+
+.link-card .lc-hint {
+  font-size: 11px;
+  color: var(--teal);
+  font-weight: 600;
+}
+
+.detail-sheet {
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.detail-sheet-body {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .panorama-toggle {
