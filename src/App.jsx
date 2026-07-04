@@ -233,7 +233,19 @@ function UpdatePrompt() {
   } = useRegisterSW({
     onRegisteredSW(swUrl, registration) {
       if (!registration) return;
-      setInterval(() => registration.update(), 60 * 1000);
+
+      const check = () => registration.update().catch(() => {});
+
+      // Checagem periódica (roda com o app aberto em primeiro plano).
+      setInterval(check, 60 * 1000);
+
+      // No celular o timer congela em segundo plano; então checamos também
+      // quando o app volta ao primeiro plano — é aí que o usuário reabre e
+      // conseguimos mostrar o aviso na hora.
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") check();
+      });
+      window.addEventListener("focus", check);
     },
   });
 
