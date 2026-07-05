@@ -900,6 +900,50 @@ export default function App() {
       showToast("Regra excluída.");
     },
 
+    // Aplica as regras "contém X → categoria Y" aos lançamentos JÁ registrados
+    // (recategorização em lote). Só muda quando: casa uma regra, a categoria da
+    // regra existe e é do MESMO tipo do lançamento (não joga receita em categoria
+    // de despesa), e a categoria realmente muda. Faz backup automático antes.
+    recategorizeByRules: async () => {
+      try {
+        const catById = Object.fromEntries(categories.map((c) => [c.id, c]));
+        const targets = [];
+
+        for (const e of entries) {
+          const rule = matchRule(e.desc, categoryRules);
+          if (!rule) continue;
+          const cat = catById[rule.categoryId];
+          if (!cat || cat.type !== e.type) continue;
+          if (e.categoryId === rule.categoryId) continue;
+          targets.push({ ...e, categoryId: rule.categoryId });
+        }
+
+        if (targets.length === 0) {
+          showToast(
+            "Nenhum lançamento precisou mudar de categoria.",
+            "success",
+            "Tudo certo"
+          );
+          return 0;
+        }
+
+        await saveAutoBackup(); // rede de segurança antes da operação em lote
+        for (const t of targets) await put("entries", t);
+        await reload();
+
+        showToast(
+          `${targets.length} lançamento(s) recategorizado(s).`,
+          "success",
+          "Regras aplicadas"
+        );
+        return targets.length;
+      } catch (e) {
+        console.error("Erro ao recategorizar:", e);
+        showToast(e?.message || "Erro ao recategorizar.", "error", "Erro");
+        throw e;
+      }
+    },
+
     addInvest: async (x) => {
       await safeCall(put, "investments", x);
       showToast("Investimento adicionado.");
@@ -2472,6 +2516,17 @@ function Regras({ data, api }) {
     setPattern("");
   };
 
+  const applyToExisting = async () => {
+    if (
+      !window.confirm(
+        "Recategorizar os lançamentos já registrados que casam com as regras? " +
+          "Um backup automático é feito antes."
+      )
+    )
+      return;
+    await api.recategorizeByRules();
+  };
+
   return (
     <div className="col gap-4">
       <Card className="p-4">
@@ -2525,6 +2580,22 @@ function Regras({ data, api }) {
           </Card>
         ))}
       </div>
+
+      {rules.length > 0 && (
+        <Card className="p-4 col gap-3">
+          <div>
+            <h3 style={{ margin: 0 }}>Aplicar às importações antigas</h3>
+            <p className="item-sub" style={{ marginTop: 4 }}>
+              Recategoriza os lançamentos já registrados que casam com uma regra
+              (do mesmo tipo). Um backup automático é feito antes.
+            </p>
+          </div>
+          <Btn variant="ghost" onClick={applyToExisting}>
+            <Sparkles size={16} />
+            Aplicar regras aos lançamentos existentes
+          </Btn>
+        </Card>
+      )}
     </div>
   );
 }
