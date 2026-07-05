@@ -740,6 +740,82 @@ export default function App() {
     setLoaded(true);
   }, []);
 
+  // Pull-to-refresh: puxar a tela pra baixo no topo recarrega os dados, com um
+  // indicador animado no topo. Toda a lógica do gesto vive em variáveis locais/
+  // refs (não em estado) para não re-registrar os listeners a cada movimento;
+  // o estado só alimenta o indicador visual.
+  const [pull, setPull] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+  const refreshingRef = useRef(false);
+
+  useEffect(() => {
+    let startY = 0;
+    let pulling = false;
+    let dist = 0;
+    const THRESHOLD = 64; // px de arraste (já com resistência) pra disparar
+    const MAX = 96;
+
+    const atTop = () =>
+      (window.scrollY || document.documentElement.scrollTop || 0) <= 0;
+
+    const onStart = (e) => {
+      if (refreshingRef.current || !atTop()) {
+        pulling = false;
+        return;
+      }
+      startY = e.touches[0].clientY;
+      pulling = true;
+      dist = 0;
+    };
+
+    const onMove = (e) => {
+      if (!pulling || refreshingRef.current) return;
+      if (!atTop()) {
+        pulling = false;
+        setPull(0);
+        return;
+      }
+      const dy = e.touches[0].clientY - startY;
+      if (dy <= 0) {
+        dist = 0;
+        setPull(0);
+        return;
+      }
+      dist = Math.min(MAX, dy * 0.5); // resistência
+      setPull(dist);
+      if (dy > 6) e.preventDefault(); // segura o overscroll nativo durante o pull
+    };
+
+    const onEnd = async () => {
+      if (!pulling) return;
+      pulling = false;
+      if (dist >= THRESHOLD) {
+        refreshingRef.current = true;
+        setRefreshing(true);
+        setPull(THRESHOLD);
+        try {
+          await reload();
+        } catch (err) {
+          /* silencioso: o próximo foco/pull tenta de novo */
+        }
+        refreshingRef.current = false;
+        setRefreshing(false);
+      }
+      setPull(0);
+    };
+
+    document.addEventListener("touchstart", onStart, { passive: true });
+    document.addEventListener("touchmove", onMove, { passive: false });
+    document.addEventListener("touchend", onEnd, { passive: true });
+    document.addEventListener("touchcancel", onEnd, { passive: true });
+    return () => {
+      document.removeEventListener("touchstart", onStart);
+      document.removeEventListener("touchmove", onMove);
+      document.removeEventListener("touchend", onEnd);
+      document.removeEventListener("touchcancel", onEnd);
+    };
+  }, [reload]);
+
   useEffect(() => {
     async function checkLocal() {
       try {
@@ -1131,6 +1207,22 @@ export default function App() {
       <style>{CSS}</style>
       <Toast toast={toast} onClose={closeToast} />
       <UpdatePrompt />
+
+      {(pull > 0 || refreshing) && (
+        <div
+          className="ptr-indicator"
+          style={{
+            transform: `translateY(${refreshing ? 0 : Math.min(0, pull - 52)}px)`,
+            opacity: refreshing ? 1 : Math.min(1, pull / 56),
+          }}
+        >
+          <RefreshCw
+            size={22}
+            className={refreshing ? "ptr-spin" : ""}
+            style={refreshing ? undefined : { transform: `rotate(${pull * 3}deg)` }}
+          />
+        </div>
+      )}
 
       {showOnboarding && (
         <Tour tab={tab} setTab={setTab} onFinish={finishOnboarding} />
@@ -4741,9 +4833,17 @@ h4 {
 }
 
 .btn-ghost {
-  background: transparent;
-  color: var(--navy);
+  /* Preenchimento translúcido (não cor fixa) para o botão ler bem tanto dentro
+     de um card quanto sobre o fundo da página, em ambos os temas. O texto segue
+     o tema via --ink, evitando o "apagado" de texto escuro no dark mode. */
+  background: rgba(0, 0, 0, .04);
+  color: var(--ink);
   border: 1px solid var(--border);
+}
+
+.dark .btn-ghost {
+  background: rgba(255, 255, 255, .08);
+  border-color: #374151;
 }
 
 .btn:disabled {
@@ -4902,6 +5002,33 @@ h4 {
 }
 
 .fab:active { transform: scale(.92); }
+
+/* Indicador de "puxar para recarregar" (pull-to-refresh) no topo. */
+.ptr-indicator {
+  position: fixed;
+  top: 10px;
+  left: 50%;
+  margin-left: -22px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel);
+  color: var(--teal);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .18);
+  z-index: 950;
+  pointer-events: none;
+}
+
+.ptr-spin {
+  animation: ptr-rotate .8s linear infinite;
+}
+
+@keyframes ptr-rotate {
+  to { transform: rotate(360deg); }
+}
 
 .import-link {
   display: inline-flex;
@@ -5164,8 +5291,10 @@ h4 {
 }
 
 .month-chip-active {
-  background: var(--navy);
-  color: #fff;
+  /* Mesmo verde da aba selecionada no menu (rgba do teal) + texto/borda teal. */
+  background: rgba(46, 139, 124, 0.14);
+  color: var(--teal);
+  border-color: var(--teal);
 }
 
 .dot {
