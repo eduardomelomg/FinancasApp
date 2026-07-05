@@ -33,6 +33,7 @@ import {
   Pencil,
   CalendarClock,
   FileUp,
+  RefreshCw,
   Sparkles,
   Landmark,
 } from "lucide-react";
@@ -3940,6 +3941,36 @@ function Ajustes({
 }) {
   const backupRef = useRef(null);
 
+  // Checagem manual de atualização do PWA. Se houver versão nova, o service
+  // worker instala o novo worker e o <UpdatePrompt> (que escuta via
+  // useRegisterSW) mostra o modal "Nova versão disponível". Aqui só disparamos
+  // a checagem e damos um retorno ao usuário.
+  const checkForUpdate = async () => {
+    try {
+      const reg = await navigator.serviceWorker?.getRegistration();
+      if (!reg) {
+        showToast(
+          "Atualização automática indisponível neste navegador.",
+          "error",
+          "Atualização"
+        );
+        return;
+      }
+      await reg.update();
+      if (reg.installing || reg.waiting) {
+        showToast(
+          "Nova versão encontrada! O aviso de atualização vai aparecer.",
+          "success",
+          "Atualização"
+        );
+      } else {
+        showToast("Você já está na versão mais recente.", "success", "Tudo em dia");
+      }
+    } catch (e) {
+      showToast("Não consegui checar agora. Tente novamente.", "error", "Erro");
+    }
+  };
+
   return (
     <div className="col gap-4">
       <Configuracoes
@@ -3982,9 +4013,15 @@ function Ajustes({
       </Card>
 
       <h2 className="section-h">Sobre</h2>
-      <Card className="p-3 row between">
-        <span className="item-sub">Versão do app</span>
-        <strong>Grana v{APP_VERSION}</strong>
+      <Card className="p-4 col gap-3">
+        <div className="row between">
+          <span className="item-sub">Versão do app</span>
+          <strong>Grana v{APP_VERSION}</strong>
+        </div>
+        <Btn variant="ghost" onClick={checkForUpdate}>
+          <RefreshCw size={16} />
+          Checar atualização
+        </Btn>
       </Card>
 
       <Btn variant="ghost" onClick={signOut}>
