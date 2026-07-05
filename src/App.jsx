@@ -767,6 +767,30 @@ export default function App() {
     })();
   }, [reload]);
 
+  // Sincronização multi-dispositivo (Frente 2, Parte 1): ao voltar ao primeiro
+  // plano/foco, recarrega do Supabase para pegar o que foi lançado em outro
+  // aparelho (ex.: lancei no PC, abro o app e já vejo). O timer não existe aqui;
+  // é o retorno de foco que dispara. Um pequeno "throttle" evita recarregar duas
+  // vezes, já que focus e visibilitychange costumam disparar juntos.
+  useEffect(() => {
+    let last = 0;
+    const refresh = () => {
+      if (document.visibilityState !== "visible") return;
+      const now = Date.now();
+      if (now - last < 3000) return; // evita disparo duplicado focus+visibility
+      last = now;
+      reload().catch(() => {});
+    };
+
+    document.addEventListener("visibilitychange", refresh);
+    window.addEventListener("focus", refresh);
+
+    return () => {
+      document.removeEventListener("visibilitychange", refresh);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [reload]);
+
   const safeCall = async (fn, ...args) => {
     try {
       const result = await fn(...args);
