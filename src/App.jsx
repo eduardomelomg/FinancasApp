@@ -632,6 +632,10 @@ export default function App() {
   const [accounts, setAccounts] = useState([]);
 
   const [loaded, setLoaded] = useState(false);
+  // Piso de tempo da splash: garante que o logo + versão fiquem visíveis por um
+  // instante mesmo quando os dados carregam rápido (senão a splash pisca e não
+  // dá pra ler a versão). Vira false ~1,2s após abrir.
+  const [minSplash, setMinSplash] = useState(true);
   const [hasLocalData, setHasLocalData] = useState(false);
   const [migrationStatus, setMigrationStatus] = useState("");
 
@@ -708,6 +712,11 @@ export default function App() {
 
   const profilePic =
     user?.user_metadata?.avatar_url || user?.user_metadata?.picture || "";
+
+  useEffect(() => {
+    const t = setTimeout(() => setMinSplash(false), 1200);
+    return () => clearTimeout(t);
+  }, []);
 
   const reload = useCallback(async () => {
     const [c, e, i, g, ca, rules, acc] = await Promise.all([
@@ -1049,7 +1058,7 @@ export default function App() {
     accounts,
   };
 
-  if (!loaded) {
+  if (!loaded || minSplash) {
     // Estilos inline (sem depender do <style> abaixo) para casar com a splash
     // do boot — navy + logo, sem tela branca nem texto "carregando".
     return (
