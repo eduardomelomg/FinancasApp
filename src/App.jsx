@@ -2495,7 +2495,7 @@ function Regras({ data, api }) {
   );
 }
 
-function Mensal({ data, api, month, setMonth }) {
+function Mensal({ data, api, month, setMonth, showToast, beforeBulk }) {
   const getFirstCategoryByType = (type) =>
     data.categories.find((category) => category.type === type)?.id || "";
 
@@ -2519,6 +2519,17 @@ function Mensal({ data, api, month, setMonth }) {
 
   const [adding, setAdding] = useState(false);
   const addingRef = useRef(false);
+
+  // Etapa B: lançamento vira modal aberto pelo "+"; importação é ação
+  // secundária dentro dele; campos avançados ficam atrás de "mais opções".
+  const [showForm, setShowForm] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [showMoreOpts, setShowMoreOpts] = useState(false);
+
+  const openForm = () => {
+    setShowMoreOpts(false);
+    setShowForm(true);
+  };
 
   useEffect(() => {
     const validCategory = data.categories.some(
@@ -2725,6 +2736,8 @@ function Mensal({ data, api, month, setMonth }) {
         recurringMonths: "12",
         cardId: f.paymentMethod === "credit_card" ? f.cardId : "",
       });
+
+      setShowForm(false); // fecha o modal após lançar
     } catch (error) {
       console.error("Erro ao adicionar lançamento:", error);
       alert(error?.message || "Erro ao adicionar lançamento.");
@@ -2795,10 +2808,23 @@ function Mensal({ data, api, month, setMonth }) {
         />
       </div>
 
-      <Card className="p-4" data-tour="entry-card">
-        <h3>Novo lançamento - {MESES[month]}</h3>
+      {showForm && (
+        <DetailSheet
+          title={`Novo lançamento · ${MESES[month]}`}
+          onClose={() => setShowForm(false)}
+        >
+          <button
+            type="button"
+            className="import-link"
+            onClick={() => {
+              setShowForm(false);
+              setShowImport(true);
+            }}
+          >
+            <FileUp size={14} /> Importar extrato (OFX/CSV)
+          </button>
 
-        <div className="grid2 gap-3">
+        <div className="grid2 gap-3" data-tour="entry-card">
           <Field label="Data da compra">
             <TextInput
               type="date"
@@ -2862,7 +2888,20 @@ function Mensal({ data, api, month, setMonth }) {
               data-tour="entry-value"
             />
           </Field>
+        </div>
 
+        <button
+          type="button"
+          className="more-opts-toggle"
+          onClick={() => setShowMoreOpts((v) => !v)}
+        >
+          {showMoreOpts
+            ? "− Menos opções"
+            : "＋ Mais opções (cartão, parcelas, conta, fixo)"}
+        </button>
+
+        {showMoreOpts && (
+        <div className="grid2 gap-3">
           <Field label="Forma de pagamento">
             <SelectInput
               data-tour="entry-payment"
@@ -2989,6 +3028,7 @@ function Mensal({ data, api, month, setMonth }) {
             />
           </Field>
         </div>
+        )}
 
         {f.paymentMethod === "credit_card" && f.isInstallment && parseMoney(f.value) > 0 && (() => {
           const total = parseMoney(f.value);
@@ -3032,7 +3072,27 @@ function Mensal({ data, api, month, setMonth }) {
           <Plus size={16} />
           {adding ? "Adicionando..." : "Adicionar"}
         </Btn>
-      </Card>
+        </DetailSheet>
+      )}
+
+      {showImport && (
+        <DetailSheet
+          title="Importar extrato"
+          onClose={() => setShowImport(false)}
+        >
+          <Importar
+            data={data}
+            api={api}
+            showToast={showToast}
+            beforeBulk={beforeBulk}
+          />
+        </DetailSheet>
+      )}
+
+      {/* FAB: ponto único "quero registrar algo" → abre o lançamento rápido. */}
+      <button className="fab" onClick={openForm} title="Novo lançamento">
+        <Plus size={26} />
+      </button>
 
       <div className="col gap-2">
         {me.map((e) => {
@@ -4679,6 +4739,56 @@ h4 {
   font-size: 12px;
   background: var(--cream);
   color: inherit;
+}
+
+.fab {
+  position: fixed;
+  right: 18px;
+  bottom: calc(var(--nav-h, 64px) + 18px);
+  z-index: 900;
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--teal), var(--gold));
+  box-shadow: 0 10px 24px rgba(46, 139, 124, .45);
+  transition: transform .12s ease;
+}
+
+.fab:active { transform: scale(.92); }
+
+.import-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px dashed var(--border);
+  background: transparent;
+  color: var(--teal);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+  margin-bottom: 12px;
+}
+
+.more-opts-toggle {
+  width: 100%;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 10px;
+  border-radius: 10px;
+  cursor: pointer;
+  margin: 12px 0;
+  opacity: .8;
 }
 
 .section-h {
