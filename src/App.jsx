@@ -1020,6 +1020,87 @@ export default function App() {
       }
     },
 
+    // Recalcula a competência de fatura (invoiceMonth/invoiceYear/invoiceDueDate)
+    // de TODOS os lançamentos de cartão, a partir da data + dados do cartão. Serve
+    // para consertar lançamentos que entraram na fatura errada antes da correção
+    // da regra de fechamento (>=). Só grava quando a fatura realmente muda. Usa a
+    // MESMA calculateInvoiceInfo do fluxo normal (fonte única). Backup antes.
+    recomputeInvoices: async () => {
+      try {
+        const cardById = Object.fromEntries(cards.map((c) => [c.id, c]));
+        const targets = [];
+        let skippedInstallments = 0;
+
+        for (const e of entries) {
+          if (e.paymentMethod !== "credit_card" || !e.cardId) continue;
+          const card = cardById[e.cardId];
+          if (!card) continue;
+
+          // Numa parcela, `date` é o VENCIMENTO dela, não a data da compra: só dá
+          // para recalcular a partir de `purchaseDate`. Séries antigas, criadas
+          // antes desse campo existir, não têm como ser reprocessadas — usar
+          // `date` empurraria a série um mês adiante a cada execução.
+          const isInstallment = Number(e.installmentsTotal || 1) > 1;
+          if (isInstallment && !e.purchaseDate) {
+            skippedInstallments++;
+            continue;
+          }
+
+          const installmentIndex = isInstallment
+            ? Math.max(0, Number(e.installmentNumber || 1) - 1)
+            : 0;
+          const info = calculateInvoiceInfo(
+            e.purchaseDate || e.date,
+            card,
+            installmentIndex
+          );
+
+          if (
+            Number(e.invoiceMonth) === info.invoiceMonth &&
+            Number(e.invoiceYear) === info.invoiceYear
+          )
+            continue;
+
+          // Parcela: `date` é o vencimento, então acompanha a fatura nova. Compra
+          // à vista mantém a data original — só a competência muda.
+          targets.push({
+            ...e,
+            ...info,
+            date: isInstallment ? info.invoiceDueDate || e.date : e.date,
+            purchaseDate: e.purchaseDate || e.date,
+          });
+        }
+
+        const parcelas = skippedInstallments
+          ? ` ${skippedInstallments} parcelamento(s) não puderam ser recalculados — ajuste à mão.`
+          : "";
+
+        if (targets.length === 0) {
+          showToast(
+            `Todas as faturas já estão corretas.${parcelas}`,
+            "success",
+            "Nada a recalcular"
+          );
+          return 0;
+        }
+
+        await saveAutoBackup(); // rede de segurança antes da operação em lote
+        for (const t of targets) await put("entries", t);
+        await reload();
+
+        showToast(
+          `${targets.length} lançamento(s) movido(s) para a fatura correta.${parcelas}`,
+          "success",
+          "Faturas recalculadas"
+        );
+        return targets.length;
+      } catch (e) {
+        console.error("Erro ao recalcular faturas:", e);
+        showToast(e?.message || "Erro ao recalcular faturas.", "error", "Erro");
+        throw e;
+      }
+    },
+
     addInvest: async (x) => {
       await safeCall(put, "investments", x);
       showToast("Investimento adicionado.");
@@ -1693,7 +1774,18 @@ function calculateInvoiceInfo(purchaseDateString, card, installmentIndex = 0) {
     1
   );
 
-  if (purchaseDay > closingDay) {
+  // Fechamento dia 30/31 em mês curto: a fatura fecha, na prática, no último dia
+  // do mês. Sem isso, um cartão que fecha dia 31 nunca fecharia em fevereiro.
+  const effectiveClosingDay = getSafeDay(
+    purchaseDate.getFullYear(),
+    purchaseDate.getMonth(),
+    closingDay
+  );
+
+  // Convenção BR: a fatura fecha NO dia do fechamento, então a compra feita no
+  // próprio dia de fechamento já pertence à PRÓXIMA fatura (>=). Vale para
+  // lançamento manual e importação — ambos passam por aqui (fonte única).
+  if (purchaseDay >= effectiveClosingDay) {
     invoiceBase = addMonthsToDate(invoiceBase, 1);
   }
 
@@ -2339,6 +2431,7 @@ function Importar({ data, api, showToast, beforeBulk }) {
         entries.push({
           id: uid(),
           date: r.date,
+          purchaseDate: r.date,
           categoryId: r.categoryId,
           desc: r.desc,
           value: Math.abs(r.amount),
@@ -2619,6 +2712,17 @@ function Regras({ data, api }) {
     await api.recategorizeByRules();
   };
 
+  const fixInvoices = async () => {
+    if (
+      !window.confirm(
+        "Recolocar cada compra de cartão na fatura certa, a partir da data e do " +
+          "fechamento/vencimento do cartão? Um backup automático é feito antes."
+      )
+    )
+      return;
+    await api.recomputeInvoices();
+  };
+
   return (
     <div className="col gap-4">
       <Card className="p-4">
@@ -2688,6 +2792,23 @@ function Regras({ data, api }) {
           </Btn>
         </Card>
       )}
+
+      <Card className="p-4 col gap-3">
+        <div>
+          <h3 style={{ margin: 0 }}>Recalcular faturas de cartão</h3>
+          <p className="item-sub" style={{ marginTop: 4 }}>
+            Recoloca cada compra de cartão na fatura certa, usando a data da
+            compra e o fechamento/vencimento do cartão. Útil quando compras perto
+            do fechamento caíram na fatura errada. Parcelamentos criados antes
+            desta versão não guardam a data da compra e são pulados. Backup
+            automático antes.
+          </p>
+        </div>
+        <Btn variant="ghost" onClick={fixInvoices}>
+          <RefreshCw size={16} />
+          Recalcular faturas
+        </Btn>
+      </Card>
     </div>
   );
 }
@@ -2860,6 +2981,7 @@ function Mensal({ data, api, month, setMonth, showToast, beforeBulk }) {
           entriesToSave.push({
             id: uid(),
             date: occIso,
+            purchaseDate: occIso,
             categoryId: f.categoryId,
             desc: f.desc,
             value: rawValue,
@@ -2887,6 +3009,7 @@ function Mensal({ data, api, month, setMonth, showToast, beforeBulk }) {
         entriesToSave.push({
           id: uid(),
           date: f.date,
+          purchaseDate: f.date,
           categoryId: f.categoryId,
           desc: f.desc,
           value: rawValue,
@@ -2907,6 +3030,9 @@ function Mensal({ data, api, month, setMonth, showToast, beforeBulk }) {
           entriesToSave.push({
             id: uid(),
             date: installmentDate,
+            // `date` aqui é o VENCIMENTO da parcela; guardamos a data real da
+            // compra para que a fatura possa ser recalculada depois.
+            purchaseDate: f.date,
             categoryId: f.categoryId,
             desc: `${f.desc || "Compra parcelada"} (${index + 1}/${installmentsTotal})`,
             value: installmentAmounts[index],

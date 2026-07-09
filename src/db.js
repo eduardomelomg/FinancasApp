@@ -54,6 +54,7 @@ const toDB = (store, item) => {
     if (item.recurringGroupId) row.recurring_group_id = item.recurringGroupId;
     if (item.importFitid) row.import_fitid = item.importFitid;
     if (item.accountId) row.account_id = item.accountId;
+    if (item.purchaseDate) row.purchase_date = item.purchaseDate;
 
     return row;
   }
@@ -119,6 +120,7 @@ const fromDB = (store, row) => {
           ? Number(row.invoice_year)
           : null,
       invoiceDueDate: row.invoice_due_date || "",
+      purchaseDate: row.purchase_date || "",
       recurringGroupId: row.recurring_group_id || "",
       importFitid: row.import_fitid || "",
       accountId: row.account_id || "",
