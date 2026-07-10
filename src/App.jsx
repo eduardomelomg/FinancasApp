@@ -104,8 +104,6 @@ const splitInstallments = (total, count) => {
   });
 };
 
-const thisYear = new Date().getFullYear();
-
 const MESES = [
   "Janeiro",
   "Fevereiro",
@@ -622,6 +620,10 @@ export default function App() {
 
   const [tab, setTab] = useState("mensal");
   const [month, setMonth] = useState(new Date().getMonth());
+  // O ano é estado, não constante de módulo: uma fatura de dezembro vence em
+  // janeiro do ano seguinte e precisa ser alcançável, e um PWA aberto durante a
+  // virada do ano não pode ficar preso no ano antigo até alguém recarregar.
+  const [year, setYear] = useState(new Date().getFullYear());
   const navRef = useRef(null);
 
   const [categories, setCategories] = useState([]);
@@ -944,8 +946,20 @@ export default function App() {
 
     // Exclui todos os lançamentos de um grupo (série recorrente ou parcelamento).
     delEntryGroup: async (field, groupId) => {
+      // Sem um groupId, o filtro casaria com todo lançamento fora de série (o
+      // banco devolve null como ""), e o loop apagaria a base inteira.
+      if (!groupId) {
+        showToast(
+          "Este lançamento não tem uma série vinculada.",
+          "error",
+          "Nada a remover"
+        );
+        return;
+      }
+
       try {
         const targets = entries.filter((e) => e[field] === groupId);
+        await saveAutoBackup(); // única operação em lote destrutiva: backup antes
         for (const e of targets) await remove("entries", e.id);
         await reload();
         showToast(`Série removida (${targets.length} lançamentos).`);
@@ -1330,7 +1344,7 @@ export default function App() {
             <h1>
               {profileName ? `Olá, ${profileName.split(" ")[0]}` : "Grana"}
             </h1>
-            <p>ano {thisYear}</p>
+            <p>ano {year}</p>
           </div>
 
           <div className="row gap-1" style={{ marginLeft: "auto" }}>
@@ -1375,7 +1389,7 @@ export default function App() {
 
       <main>
         {tab === "mensal" && (
-          <Mensal data={data} api={api} month={month} setMonth={setMonth} showToast={showToast} beforeBulk={saveAutoBackup} />
+          <Mensal data={data} api={api} month={month} setMonth={setMonth} year={year} setYear={setYear} showToast={showToast} beforeBulk={saveAutoBackup} />
         )}
 
         {tab === "panorama" && (
@@ -1383,6 +1397,7 @@ export default function App() {
             data={data}
             api={api}
             month={month}
+            year={year}
             darkMode={darkMode}
             chartTextColor={chartTextColor}
             chartGridColor={chartGridColor}
@@ -1390,7 +1405,7 @@ export default function App() {
         )}
 
         {tab === "carteira" && (
-          <Carteira data={data} api={api} month={month} />
+          <Carteira data={data} api={api} month={month} year={year} />
         )}
 
         {tab === "config" && (
@@ -1463,19 +1478,19 @@ function DetailSheet({ title, onClose, children }) {
 
 // Aba CARTEIRA: cartões + contas juntos ("onde meu dinheiro está / de onde sai").
 // Reutiliza os componentes existentes de gestão, só empilhados numa página.
-function Carteira({ data, api, month }) {
+function Carteira({ data, api, month, year }) {
   return (
     <div className="col gap-4">
       <h2 className="section-h">Cartões</h2>
-      <Cartoes data={data} api={api} month={month} />
+      <Cartoes data={data} api={api} month={month} year={year} />
 
       <h2 className="section-h">Contas / Bancos</h2>
-      <Contas data={data} api={api} month={month} />
+      <Contas data={data} api={api} month={month} year={year} />
     </div>
   );
 }
 
-function Panorama({ data, api, month, darkMode, chartTextColor, chartGridColor }) {
+function Panorama({ data, api, month, year, darkMode, chartTextColor, chartGridColor }) {
   const [detail, setDetail] = useState(null);
 
   // A pagar: total de despesas comprometidas em meses futuros (por competência).
@@ -1495,8 +1510,8 @@ function Panorama({ data, api, month, darkMode, chartTextColor, chartGridColor }
   // Escopo por competência (cartão cai na fatura, resto na data). Ano = ano
   // todo; Mês = o mês selecionado na aba Mês.
   const scope = data.entries.filter((e) => {
-    const { year, month: m } = entryCompetence(e);
-    if (year !== thisYear) return false;
+    const { year: y, month: m } = entryCompetence(e);
+    if (y !== year) return false;
     return isMonth ? m === month : true;
   });
 
@@ -1517,8 +1532,8 @@ function Panorama({ data, api, month, darkMode, chartTextColor, chartGridColor }
 
   const bm = MESES.map((_, idx) => {
     const es = data.entries.filter((e) => {
-      const { year, month: m } = entryCompetence(e);
-      return year === thisYear && m === idx;
+      const { year: y, month: m } = entryCompetence(e);
+      return y === year && m === idx;
     });
 
     return {
@@ -1559,7 +1574,7 @@ function Panorama({ data, api, month, darkMode, chartTextColor, chartGridColor }
           className={!isMonth ? "pt-active" : ""}
           onClick={() => setView("year")}
         >
-          Ano {thisYear}
+          Ano {year}
         </button>
       </div>
 
@@ -1841,7 +1856,7 @@ const ACCOUNT_KINDS = {
   credit: "Cartão de crédito",
 };
 
-function Contas({ data, api, month }) {
+function Contas({ data, api, month, year }) {
   const empty = {
     id: "",
     name: "",
@@ -1871,8 +1886,8 @@ function Contas({ data, api, month }) {
 
   // Lançamentos do mês selecionado, por competência (cartão usa fatura).
   const monthEntries = data.entries.filter((e) => {
-    const { year, month: m } = entryCompetence(e);
-    return year === thisYear && m === month;
+    const { year: y, month: m } = entryCompetence(e);
+    return y === year && m === month;
   });
 
   const statsFor = (accountId) => {
@@ -2813,7 +2828,7 @@ function Regras({ data, api }) {
   );
 }
 
-function Mensal({ data, api, month, setMonth, showToast, beforeBulk }) {
+function Mensal({ data, api, month, setMonth, year, setYear, showToast, beforeBulk }) {
   const getFirstCategoryByType = (type) =>
     data.categories.find((category) => category.type === type)?.id || "";
 
@@ -2892,11 +2907,11 @@ function Mensal({ data, api, month, setMonth, showToast, beforeBulk }) {
         e.invoiceYear !== null &&
         e.invoiceYear !== undefined
       ) {
-        return Number(e.invoiceMonth) === month && Number(e.invoiceYear) === thisYear;
+        return Number(e.invoiceMonth) === month && Number(e.invoiceYear) === year;
       }
 
       const d = localDate(e.date);
-      return d.getMonth() === month && d.getFullYear() === thisYear;
+      return d.getMonth() === month && d.getFullYear() === year;
     })
     .sort((a, b) => b.date.localeCompare(a.date));
 
@@ -3090,8 +3105,14 @@ function Mensal({ data, api, month, setMonth, showToast, beforeBulk }) {
 
   return (
     <div className="col gap-4">
-      <p className="viewing-month">
-        Vendo: <strong>{MESES[month]} de {thisYear}</strong>
+      <p className="viewing-month row between">
+        <span>
+          Vendo: <strong>{MESES[month]} de {year}</strong>
+        </span>
+        <span className="year-nav">
+          <button onClick={() => setYear(year - 1)} title="Ano anterior">‹</button>
+          <button onClick={() => setYear(year + 1)} title="Próximo ano">›</button>
+        </span>
       </p>
 
       <div className="months">
@@ -3106,7 +3127,7 @@ function Mensal({ data, api, month, setMonth, showToast, beforeBulk }) {
         ))}
       </div>
 
-      <CartoesCarrossel data={data} year={thisYear} month={month} />
+      <CartoesCarrossel data={data} year={year} month={month} />
 
       <div className="grid2 gap-3">
         <StatCard
@@ -3603,7 +3624,7 @@ const EMPTY_CARD_FORM = {
   active: true,
 };
 
-function Cartoes({ data, api, month }) {
+function Cartoes({ data, api, month, year }) {
   const [f, setF] = useState(EMPTY_CARD_FORM);
   const [editingId, setEditingId] = useState(null);
 
@@ -3655,13 +3676,13 @@ function Cartoes({ data, api, month }) {
     ) {
       return (
         Number(entry.invoiceMonth) === month &&
-        Number(entry.invoiceYear) === thisYear
+        Number(entry.invoiceYear) === year
       );
     }
 
-    const date = new Date(`${entry.date}T12:00:00`);
+    const date = localDate(entry.date);
 
-    return date.getMonth() === month && date.getFullYear() === thisYear;
+    return date.getMonth() === month && date.getFullYear() === year;
   });
 
   const creditEntries = data.entries.filter(
@@ -3674,9 +3695,13 @@ function Cartoes({ data, api, month }) {
 
   // Total comprometido no limite: parcelas ainda NÃO pagas.
   // Ao marcar a fatura como paga, essas parcelas liberam o limite.
+  // Receita no cartão (estorno, cashback) devolve limite, então entra negativa.
+  const signedValue = (entry) =>
+    entry.type === "receita" ? -entry.value : entry.value;
+
   const totalLimitUsed = creditEntries
     .filter((entry) => !entry.paid)
-    .reduce((acc, entry) => acc + entry.value, 0);
+    .reduce((acc, entry) => acc + signedValue(entry), 0);
 
   // Valor da fatura do mês selecionado.
   const totalInvoice = invoiceEntries.reduce((acc, entry) => acc + entry.value, 0);
@@ -3691,7 +3716,7 @@ function Cartoes({ data, api, month }) {
   const getLimitUsedByCard = (cardId) =>
     creditEntries
       .filter((entry) => entry.cardId === cardId && !entry.paid)
-      .reduce((acc, entry) => acc + entry.value, 0);
+      .reduce((acc, entry) => acc + signedValue(entry), 0);
 
   // Lançamentos da fatura do mês, por cartão (para marcar como paga).
   const getInvoiceEntriesByCard = (cardId) =>
@@ -5402,6 +5427,22 @@ h4 {
   opacity: 1;
   color: var(--teal);
 }
+
+.year-nav { display: flex; gap: 4px; }
+
+.year-nav button {
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: inherit;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.year-nav button:hover { background: var(--panel); }
 
 .month-chip {
   padding: 6px 12px;
