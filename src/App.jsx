@@ -2163,7 +2163,10 @@ function FaturaModal({ card, data, startYear, startMonth, onClose }) {
   const items = invoiceEntriesFor(data.entries, card.id, ym.year, ym.month).sort(
     (a, b) => b.date.localeCompare(a.date)
   );
-  const total = items.reduce((a, e) => a + e.value, 0);
+  const total = items.reduce(
+    (a, e) => a + (e.type === "receita" ? -e.value : e.value),
+    0
+  );
 
   const shift = (delta) => {
     const idx = ym.year * 12 + ym.month + delta;
@@ -2243,13 +2246,14 @@ function CartoesCarrossel({ data, year, month }) {
       <div className="carousel">
         {cards.map((card) => {
           const items = invoiceEntriesFor(data.entries, card.id, year, month);
-          const invoiceTotal = items.reduce((a, e) => a + e.value, 0);
+          const signed = (e) => (e.type === "receita" ? -e.value : e.value);
+          const invoiceTotal = items.reduce((a, e) => a + signed(e), 0);
 
           const limit = Number(card.limit || card.limitValue || 0);
-          // "Usado" = faturas ainda não pagas do cartão.
+          // "Usado" = faturas ainda não pagas do cartão. Estorno/cashback devolve limite.
           const used = data.entries
             .filter((e) => e.cardId === card.id && !e.paid)
-            .reduce((a, e) => a + e.value, 0);
+            .reduce((a, e) => a + signed(e), 0);
           const available = limit - used;
           const usedPct = limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
 
@@ -3704,14 +3708,14 @@ function Cartoes({ data, api, month, year }) {
     .reduce((acc, entry) => acc + signedValue(entry), 0);
 
   // Valor da fatura do mês selecionado.
-  const totalInvoice = invoiceEntries.reduce((acc, entry) => acc + entry.value, 0);
+  const totalInvoice = invoiceEntries.reduce((acc, entry) => acc + signedValue(entry), 0);
 
   const totalAvailable = totalLimit - totalLimitUsed;
 
   const getInvoiceByCard = (cardId) =>
     invoiceEntries
       .filter((entry) => entry.cardId === cardId)
-      .reduce((acc, entry) => acc + entry.value, 0);
+      .reduce((acc, entry) => acc + signedValue(entry), 0);
 
   const getLimitUsedByCard = (cardId) =>
     creditEntries
